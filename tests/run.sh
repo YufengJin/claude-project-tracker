@@ -7,6 +7,9 @@ MODEL=$1
 for sc in $SCENARIOS; do
   R="$S/runs/$MODEL-$sc"
   rm -rf "$R"; mkdir -p "$S/runs"; cp -a "$S/fixture" "$R"
+  sed -i "s|{{WORKDIR}}|$R|" "$R/.claude/project/calc-fix/charter.md"
+  git -C "$R" commit -qam "fixture workdir" 2>/dev/null
+  export PROJECT_TRACKER_ROOT="$R/.claude/project"   # 全局根指向夹具，hook 和 pt.sh 都读它
   P="${PROMPT[$sc]}"
   start=$(date +%s)
   case $MODEL in

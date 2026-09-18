@@ -1,6 +1,7 @@
 # calc 库除法修复
 
 Slug: calc-fix
+Workdir: {{WORKDIR}}
 Created: 2026-09-05
 Status: 进行中
 

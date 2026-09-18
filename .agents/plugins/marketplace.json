@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "project-tracker",
-      "description": "为跨多次会话的长期任务在 .claude/project/<slug>/ 建立可恢复、可审计的档案（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。Use when a task spans multiple sessions and its goal, plan, state and decisions must survive between them.",
+      "description": "为跨多次会话的长期任务在全局目录 ~/.claude/project/<slug>/ 建立可恢复、可审计的档案，按 Workdir 隔离，一个会话只加载一个项目（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。Use when a task spans multiple sessions and its goal, plan, state and decisions must survive between them.",
       "source": { "source": "local", "path": "./plugins/project-tracker" },
       "category": "Developer Tools"
     }

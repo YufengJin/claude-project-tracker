@@ -5,12 +5,12 @@ name=$(basename "$R"); model=${name%%-*}; sc=${name#*-}
 echo "################ $name"
 if [ "$model" = codex ]; then
   echo "skill loaded : $(grep -c 'project-tracker/SKILL.md' out.jsonl) refs to SKILL.md"
-  echo "brief.sh run : $(grep -c 'brief.sh' out.jsonl) refs"
+  echo "pt.sh run    : $(grep -c 'pt.sh' out.jsonl) refs"
   echo "--- final message"; cat last.md 2>/dev/null | head -40
 else
   echo "Skill tool   : $(grep -o '"name":"Skill","input":{[^}]*}' out.jsonl | head -3)"
   echo "SKILL.md read: $(grep -c 'project-tracker/SKILL.md' out.jsonl) refs"
-  echo "brief.sh run : $(grep -c 'brief.sh' out.jsonl) refs"
+  echo "pt.sh run    : $(grep -c 'pt.sh' out.jsonl) refs"
   echo "tools used   : $(grep -o '"name":"[A-Za-z]*","input"' out.jsonl | cut -d'"' -f4 | sort | uniq -c | tr '\n' ' ')"
   echo "--- final message"; python3 - <<'PY'
 import json

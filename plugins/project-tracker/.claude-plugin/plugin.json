@@ -1,9 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "project-tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Project Tracker",
-  "description": "为跨多次会话的长期任务在 .claude/project/<slug>/ 建立可恢复、可审计的档案（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。Use when a task spans multiple sessions and its goal, plan, state and decisions must survive between them.",
+  "description": "为跨多次会话的长期任务在全局目录 ~/.claude/project/<slug>/ 建立可恢复、可审计的档案，按 Workdir 隔离，一个会话只加载一个项目（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。Use when a task spans multiple sessions and its goal, plan, state and decisions must survive between them.",
   "author": { "name": "yufengjin", "email": "jyf931118@gmail.com" },
   "license": "MIT",
   "keywords": ["long-horizon", "checkpoint", "handoff", "resume", "journal", "adr", "project-state"]

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/project-tracker/scripts/brief.sh\" --if-active",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/project-tracker/scripts/pt.sh\" auto",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[project-tracker] 即将压缩上下文。若 .claude/project/ACTIVE 指向的项目本会话有进展且未 checkpoint，压缩后请立即追加 journal 并重写 state。'",
+            "command": "echo '[project-tracker] 即将压缩上下文。若本会话有项目进展且未 checkpoint，压缩后请立即追加 journal 并重写 state（pt.sh brief 会重新注入简报）。'",
             "timeout": 5
           }
         ]
