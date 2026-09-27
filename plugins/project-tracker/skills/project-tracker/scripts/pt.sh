@@ -29,6 +29,9 @@ section() { printf '\n===== %s =====\n' "$1"; }
 # 读 charter 里的字段：field <slug> <Key>
 field() { sed -n "s/^$2:[[:space:]]*//p" "$ROOT/$1/charter.md" 2>/dev/null | head -n1; }
 
+# Workdir 里的路径，一行一个。容忍 agent 顺手写的注释：路径在第一个括号/分号/逗号处截断，不像路径的片段丢掉
+workdirs() { field "$1" Workdir | tr ' ' '\n' | sed -E 's/(（|\(|；|;|，|,).*//' | grep -E '^[~/]'; }
+
 # 档案 git 用固定身份，不依赖各机的 git 配置
 g() { local d=$1; shift; git -C "$d" -c user.name=project-tracker -c user.email="pt@$THIS_HOST" -c commit.gpgsign=false "$@"; }
 
@@ -51,7 +54,7 @@ commit_all() {
 host_of() {
   local h p; h="$(field "$1" Host)"
   if [ -n "$h" ]; then echo "$h"; return; fi
-  for p in $(field "$1" Workdir); do
+  for p in $(workdirs "$1"); do
     p="${p/#\~/$HOME}"; [ -d "$p" ] && { echo "$THIS_HOST"; return; }
   done
 }
@@ -75,7 +78,7 @@ host_label() {
 # 某 slug 的 Workdir 是否包含当前目录
 hits_cwd() {
   local p
-  for p in $(field "$1" Workdir); do
+  for p in $(workdirs "$1"); do
     p="${p/#\~/$HOME}"
     p="$(cd "$p" 2>/dev/null && pwd -P)" || continue
     case "$CWD/" in "$p"/*) return 0 ;; esac

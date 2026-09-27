@@ -29,7 +29,7 @@ for d in "$R"/*/; do
       git init -q "$d" && git -C "$d" symbolic-ref HEAD refs/heads/main && git -C "$d" config receive.denyCurrentBranch updateInstead
     fi
     if ! grep -q '^Host:' "$d/charter.md"; then
-      for p in $(sed -n 's/^Workdir:[[:space:]]*//p' "$d/charter.md" | head -n1); do
+      for p in $(sed -n 's/^Workdir:[[:space:]]*//p' "$d/charter.md" | head -n1 | tr ' ' '\n' | sed -E 's/(（|\(|；|;|，|,).*//' | grep -E '^[~/]'); do
         p="${p/#\~/$HOME}"
         [ -d "$p" ] && { sed -i "/^Workdir:/a Host: $H" "$d/charter.md"; break; }
       done

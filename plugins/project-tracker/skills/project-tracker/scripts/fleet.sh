@@ -206,7 +206,7 @@ fleet_dispatch() {
     || die "$a 上的档案还没和中心一致（见上面的同步信息），稍后再派"
 
   local wd id rd tmp mode cw
-  wd="$(field "$s" Workdir | awk '{print $1}')"
+  wd="$(workdirs "$s" | head -n1)"
   id="$s-$(date +%Y%m%d-%H%M%S)-$(printf %04x $RANDOM)"
   rd="$RROOT/.runs/$id"
   mode="${PT_DISPATCH_MODE:-bypassPermissions}"

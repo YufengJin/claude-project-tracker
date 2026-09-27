@@ -49,6 +49,9 @@ check "auto 多命中 + ACTIVE 在内 → brief alpha" 'grep -q "项目简报: a
 echo nothing > "$T/root/ACTIVE"
 out=$(cd "$T/repoA/sub" && bash "$PT" auto)
 check "auto 多命中 无 ACTIVE → 只列 slug" 'grep -q "多个进行中项目" <<<"$out" && ! grep -q "charter" <<<"$out"'
+bash "$PT" new annot "带注释的 Workdir" "$T/repoB（代码源头）；另一台机器 \`x@y\`（仿真）" >/dev/null
+check "Workdir 带注释也能命中"          '[ "$(cd "$T/repoB" && bash "$PT" where | sort | tr "\n" " ")" = "annot beta " ]'
+bash "$PT" index annot "收起" 已放弃 >/dev/null
 check "CLAUDE_PROJECT_DIR 优先于 PWD"  '[ "$(cd "$T/other" && CLAUDE_PROJECT_DIR="$T/repoB" bash "$PT" where)" = beta ]'
 
 echo "# brief"
