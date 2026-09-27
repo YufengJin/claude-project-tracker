@@ -68,6 +68,7 @@ alias_of_host() {
 host_label() {
   local h; h="$(host_of "$1")"
   [ -n "$h" ] || { echo "待定位"; return; }
+  [ "$h" = "$THIS_HOST" ] && { echo "本机"; return; }
   alias_of_host "$h" || echo "$h"
 }
 
@@ -106,6 +107,15 @@ set_summary() {
   mv "$tmp" "$f"
 }
 
+# 最后更新：最后一次提交的日期（迁移提交不算）；只有迁移提交时取 journal 最后一条的日期
+last_update() {
+  local d="$ROOT/$1" u
+  u="$(git -C "$d" log -1 --format=%as --invert-grep --grep='^migrate to 0\.4' 2>/dev/null)"
+  [ -n "$u" ] || u="$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' "$d/journal.md" 2>/dev/null | tail -n1 | cut -c4-)"
+  [ -n "$u" ] || u="$(date -r "$d/state.md" +%F 2>/dev/null)"
+  echo "$u"
+}
+
 status_rank() { case "$1" in 进行中) echo 1 ;; 暂停) echo 2 ;; 已完成) echo 3 ;; 已放弃) echo 4 ;; *) echo 5 ;; esac; }
 
 # INDEX.md 是生成视图：名称/状态/Host 取 charter，日期取最后一次提交，一句话取 state
@@ -120,8 +130,7 @@ render_index() {
       s="$(basename "$d")"
       [ -f "$d/charter.md" ] || continue
       st="$(field "$s" Status)"
-      upd="$(git -C "$d" log -1 --format=%cs 2>/dev/null)"
-      [ -n "$upd" ] || upd="$(date -r "$d/state.md" +%F 2>/dev/null)"
+      upd="$(last_update "$s")"
       sum="$(summary_of "$s")"; sum="${sum//|/／}"
       flag=""; [ -f "$ROOT/.fleet/forked/$s" ] && flag="⚠分叉 "
       printf '%s\t%s\t| %s | %s | %s | %s | %s | %s%s |\n' "$(status_rank "$st")" "$upd" \

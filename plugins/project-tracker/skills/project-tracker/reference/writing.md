@@ -54,4 +54,4 @@ Open:     新冒出来的问题
 | Slug | 名称 | 状态 | 主机 | 最后更新 | 一句话 |
 ```
 
-生成视图，不手编：名称取 charter 标题，状态取 `Status`，主机取 `Host`，日期取最后一次提交，一句话取 state「一句话概括」首行。`pt new` / `pt index` / `pt list` / 同步都会重建它。
+生成视图，不手编：名称取 charter 标题，状态取 `Status`，主机取 `Host`（本机显示"本机"），日期取最后一次提交（迁移提交不算；只有迁移提交时取 journal 最后一条的日期），一句话取 state「一句话概括」首行。`pt new` / `pt index` / `pt list` / 同步都会重建它。

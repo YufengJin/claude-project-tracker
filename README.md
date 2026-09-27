@@ -74,7 +74,7 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 
 - `Workdir` may list several directories, so one project can span two repositories. `Host` says which
   machine those paths live on; `where` / `auto` only match projects whose `Host` is this machine.
-- `INDEX.md` is rebuilt from the archives (charter fields, last commit date, the first line of the
+- `INDEX.md` is rebuilt from the archives (charter fields, last commit date not counting the migration commit, the first line of the
   state's one-liner section); never edit it by hand.
 - A session touches exactly one `<slug>/`. `list` reads only `INDEX.md`. Other projects' files are never
   opened, quoted or summarised, even when they share a `Workdir`. Switching projects is a `resume`.

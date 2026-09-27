@@ -70,7 +70,7 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 
 - `Workdir` 可写多个目录，一个项目可以横跨两个仓库。`Host` 写这些路径在哪台机器上；`where` / `auto` 只认
   Host 是本机的项目。
-- `INDEX.md` 由档案生成（charter 字段、最后提交日期、state「一句话概括」首行），不要手改。
+- `INDEX.md` 由档案生成（charter 字段、最后提交日期（迁移提交不算）、state「一句话概括」首行），不要手改。
 - 一个会话只碰一个 `<slug>/`。`list` 只读 `INDEX.md`。其他项目的文件不打开、不引用、不总结，即使同一个 Workdir。
   切项目就是一次 `resume`。
 - 迁移原来放在仓库里的档案：把 `.claude/project/<slug>` 拷到 `~/.claude/project/`，在 charter 的 `Slug:` 下面
