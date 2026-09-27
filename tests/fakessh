@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# 桩 ssh：别名 → $FAKE_HOSTS/<别名> 当作那台机器的 HOME，在本地执行命令（hostname = host-<别名>）。
+# 目录不存在或里面有 .offline → 模拟连不上（退出 255）。
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|-p|-i|-l|-F|-J) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+a="$1"; shift
+H="$FAKE_HOSTS/$a"
+if [ ! -d "$H" ] || [ -f "$H/.offline" ]; then
+  echo "ssh: connect to host $a port 22: Connection timed out" >&2; exit 255
+fi
+export HOME="$H" PT_HOSTNAME="host-$a"
+unset PROJECT_TRACKER_ROOT
+cd "$H" || exit 255
+exec bash -c "$*"

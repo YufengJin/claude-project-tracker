@@ -63,15 +63,19 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 
 ```
 ~/.claude/project/            # override with PROJECT_TRACKER_ROOT
-├── INDEX.md                  # one row per project: slug, name, status, last update, one-liner
+├── INDEX.md                  # generated: slug, name, status, host, last commit, one-liner
 ├── ACTIVE                    # slug of the last brief; only a tie-breaker when a dir has several projects
-└── <slug>/
-    ├── charter.md            # has  Workdir: /abs/path [/another/path ...]
+├── FLEET                     # hub only: one ssh alias per node (private, never published)
+└── <slug>/                   # a git repository; each checkpoint is one commit
+    ├── charter.md            # has  Workdir: /abs/path [...]  and  Host: <hostname>
     ├── plan.md  state.md  journal.md  decisions.md
     └── archive/
 ```
 
-- `Workdir` may list several directories, so one project can span two repositories.
+- `Workdir` may list several directories, so one project can span two repositories. `Host` says which
+  machine those paths live on; `where` / `auto` only match projects whose `Host` is this machine.
+- `INDEX.md` is rebuilt from the archives (charter fields, last commit date, the first line of the
+  state's one-liner section); never edit it by hand.
 - A session touches exactly one `<slug>/`. `list` reads only `INDEX.md`. Other projects' files are never
   opened, quoted or summarised, even when they share a `Workdir`. Switching projects is a `resume`.
 - Move an existing in-repo archive by copying `.claude/project/<slug>` into `~/.claude/project/` and
@@ -80,13 +84,17 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 ## `pt.sh`
 
 ```bash
-PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.2.0/skills/project-tracker/scripts/pt.sh
-bash $PT list                                  # INDEX plus each project's Workdir
-bash $PT where                                 # in-progress projects that claim $PWD
+PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
+bash $PT list                                  # INDEX plus each project's host and Workdir (hub: syncs first)
+bash $PT where                                 # in-progress local projects that claim $PWD
 bash $PT auto                                  # what the SessionStart hook runs
 bash $PT brief <slug>                          # recovery-order brief, sets ACTIVE
-bash $PT new <slug> "<name>" [workdir ...]     # scaffold five files from templates, INDEX row, ACTIVE
-bash $PT index <slug> "<one-liner>" [status]   # update INDEX date/one-liner; status also updates charter
+bash $PT new <slug> "<name>" [--host H] [workdir ...]  # scaffold the archive as a git repo, ACTIVE
+bash $PT index <slug> "<one-liner>" [status]   # set the one-liner/status, commit, rebuild INDEX
+bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
+bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
+bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
+bash $PT runs [slug | --wait <run>]            # hub: dispatch status
 ```
 
 ## How to use
@@ -152,6 +160,41 @@ which manual to read first. The hub's own manual decides format and publishing. 
 asks where to write. The page's location goes into `state.md` so the next session can update it.
 
 ```markdown
+## Multiple machines: one hub for the whole fleet (optional)
+
+Projects start wherever the code is: a workstation, a GPU server, a robot. One machine, the **hub**, sees
+and can take over all of them. It needs nothing on the nodes except `git` and `sshd`, and the nodes never
+connect back to the hub.
+
+```
+          hub (all archives, dispatch)          ~/.claude/project/FLEET:  gpu1
+          │  ssh + git, hub-initiated only                               robot-a
+     ┌────┴─────┬──────────┐                                             robot-b  # often offline
+    gpu1     robot-a    robot-b     each node keeps only the projects whose Host is itself
+```
+
+- **Sync is fast-forward only.** For every project the hub compares its copy with the node's: whoever
+  is ahead wins. If both sides have commits the other lacks, the project is flagged **forked**; nothing
+  is merged automatically, dispatch is refused, and the next agent merges it with `git merge` by meaning
+  (keep both journals' entries, rewrite the state). No wall-clock time is trusted.
+- Nothing half-written moves: a checkpoint is committed by `pt index`; the hub never pushes into a node
+  that has uncommitted changes, changed its archive within 15 minutes, or is running a dispatch.
+  Uncommitted changes idle for 30 minutes (a forgotten checkpoint, or an old plugin that never commits)
+  are committed by the hub's probe.
+- `pt list` and `pt brief` on the hub sync first; a systemd user timer syncs every 15 minutes so the
+  last state of a node that goes offline is kept (see `reference/hooks.md`).
+- **Take over** a project from the hub by simply resuming and checkpointing there; the next sync pushes
+  it back. Light work: `ssh <alias>`. Long or hardware-bound work:
+  `pt dispatch <slug> "<task>" --wait` runs `claude -p` in tmux on that node (bypassPermissions by
+  default, `PT_DISPATCH_MODE` to change), the agent checkpoints there, and the result syncs back.
+  Status, exit code and logs live in `~/.claude/project/.runs/<run>/` on the node.
+- A project whose code is elsewhere: `pt new <slug> "<name>" --host <alias> /path/on/that/machine`; the
+  next sync creates it on that node.
+- Setup: write the node aliases (as in `~/.ssh/config`) into `~/.claude/project/FLEET`, run
+  `pt migrate` on every machine once, then `pt sync`.
+
+Known limit: anyone sharing a node's Unix account can read that node's archives and dispatch logs.
+
 ## team-wiki (whole team can read)
 - Content repo: ~/team-site/src/content/notes/, one note = <topic>/index.mdx
 - Read first: its AGENTS.md. Pushing main deploys.
@@ -185,19 +228,25 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              the single source of truth
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index
-    reference/templates/*.md           the five files, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}}
+    scripts/pt.sh                      list / where / auto / brief / new / index / migrate
+    scripts/fleet.sh                   hub: sync / dispatch / runs (sourced by pt.sh)
+    scripts/probe.sh                   runs on a node over ssh; needs only git
+    reference/templates/*.md           the five files, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
     reference/writing.md               field rules and good/bad examples
     reference/hooks.md                 how the hooks isolate context; manual install
   hooks/hooks.json                     Claude Code SessionStart / PreCompact
 tests/
   unit.sh                              pt.sh behaviour and isolation, no model, seconds
+  fleet.sh  fakessh  fakeclaude        multi-machine sync and dispatch against fake hosts
   run.sh / eval.sh / scenarios.sh      model-driven scenarios against a fixture repo
 ```
 
 ## Testing
 
 `bash tests/unit.sh` exercises every `pt.sh` subcommand and the isolation rules against a scratch root.
+`bash tests/fleet.sh` simulates a hub and three nodes (a stub `ssh` maps each alias to a local HOME, a stub
+`claude` plays the dispatched agent): import, push-back, forks and their resolution, dirty and idle nodes,
+a dirty hub, offline nodes, privacy, first delivery, slug clashes, dispatch success, failure and crash.
 `tests/run.sh <opus|fable|codex>` drives the four modes non-interactively through a fixture repository
 and `tests/eval.sh` prints the evidence. See [tests/README.md](tests/README.md).
 

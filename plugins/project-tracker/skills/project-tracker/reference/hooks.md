@@ -38,6 +38,26 @@ PreCompact 不能阻断，只能提醒。压缩后 SessionStart(compact) 会重�
 
 可用 Stop hook 在"有代码改动但 journal 没新条目"时阻止结束。实践中噪音大。若确实要硬保证，条件同时满足才拦：`pt.sh where` 非空、`git diff --stat HEAD` 非空、journal mtime 早于最近源码改动。`decision: "block"` + `reason`，最多拦一次。
 
+## 中心机定时同步（多机时）
+
+中心机（有 `~/.claude/project/FLEET`）上 `pt list` / `pt brief` 会先同步，但节点离线前的最后状态只有定时同步才抓得到。用 systemd 用户定时器，每 15 分钟一次（机器要 `loginctl enable-linger $USER`）：
+
+```ini
+# ~/.config/systemd/user/pt-sync.service
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'exec bash "$(ls -d ~/.claude/plugins/cache/project-tracker/project-tracker/*/skills/project-tracker/scripts/pt.sh | sort -V | tail -n1)" sync -q'
+
+# ~/.config/systemd/user/pt-sync.timer
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+[Install]
+WantedBy=timers.target
+```
+
+`systemctl --user daemon-reload && systemctl --user enable --now pt-sync.timer`；日志 `journalctl --user -u pt-sync`。ExecStart 每次取已安装的最新版本，升级插件不用改定时器。
+
 ## 分工
 
 - hooks：确定性地把状态灌回上下文

@@ -34,3 +34,11 @@ Claude Code 用 `claude -p --model <id>`，Codex 用 `codex exec`，两者都以
 2026-09-27（v0.3.0，加"给人看的记录"）用 opus 子代理只读演练：旧版在档案里没记过 hub 的项目上，为找去向 grep 了其他项目的档案、
 约 6 次调用后仍要猜是哪个 hub；新版读一次 `HUBS.md` 就定位，没说哪个 hub 时会问；点名 hub 时按该 hub 的手册取格式；
 普通 checkpoint 不写 hub、也不主动提议。
+
+## 多机（fleet.sh）
+
+`fleet.sh` 不调模型。`fakessh` 把别名 `a`/`b`/`c` 映射成 `$T/hosts/<别名>` 当 HOME（hostname = `host-<别名>`），目录里有
+`.offline` 就模拟连不上；`fakeclaude` 读派活 prompt，照规矩追加 journal 并 `pt.sh index`，行为由节点 HOME 下的
+`.fake_claude`（`sleep N` / `fail`）控制。tmux 用每台假主机独立的 socket，测试结束全部清掉。
+
+2026-09-27（v0.4.0）：unit 56/56、fleet 51/51。

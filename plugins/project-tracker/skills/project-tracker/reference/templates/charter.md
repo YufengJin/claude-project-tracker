@@ -2,6 +2,7 @@
 
 Slug: {{SLUG}}
 Workdir: {{WORKDIR}}
+Host: {{HOST}}
 Created: {{DATE}}
 Status: 进行中
 

@@ -12,7 +12,7 @@
 ## journal 条目
 
 ```
-## YYYY-MM-DD · session N
+## YYYY-MM-DD · session N · @hostname
 Goal:     这次打算做什么
 Did:      实际做了什么
 Result:   成功 / 失败 / 部分。必须带证据
@@ -24,10 +24,11 @@ Open:     新冒出来的问题
 
 - `Result` 反例："完成了"。正例："完成。`pytest tests/ -q` 从 12 failed 降到 0 failed，41s"。
 - `Learned` 反例："学到很多"。正例："Tsit5 对这个 ODE 太刚性会发散，换 Kvaerno5 后收敛"。
-- session N = `grep -c '^## ' journal.md` + 1，brief 会直接打印。**一次会话只有一条**：同一会话内再次 checkpoint 只改写本会话这条末尾条目，历史条目一个字节都不动。
+- session N = `grep -c '^## ' journal.md` + 1，brief 会直接打印（连同本机 hostname）。标题里的 `@hostname` 让多机时知道这条是在哪台机器上写的。**一次会话只有一条**：同一会话内再次 checkpoint 只改写本会话这条末尾条目，历史条目一个字节都不动。
 
 ## state.md
 
+- 「一句话概括」的第一行就是 INDEX 里的一句话，`pt index` 会改写它；后面几行随意补充。
 - 硬上限 100 行。超了就把"已完成"整段挪进 `archive/state-YYYY-MM-DD.md`（顶部加一行 `Archived from state.md on YYYY-MM-DD`），这里留一行摘要。
 - "别再试"是最值钱的一节：走不通的路 + 为什么。每次 checkpoint 从 journal 的 `Learned` 提升过来。
 - "快速启动"要能直接复制运行。
@@ -43,13 +44,14 @@ Open:     新冒出来的问题
 ## charter.md
 
 - `Workdir`：一个或多个绝对路径，空格分隔。SessionStart hook 只在当前目录落在其中之一时才加载这个项目。项目跨仓库就写多个。
+- `Host`：代码和硬件所在机器的 hostname，`Workdir` 按那台机器解释。立项时自动填本机；代码在别处用 `pt new --host`。`待定位` 表示迁移时判断不出来，要手工改。
 - `Status`：`进行中` `暂停` `已完成` `已放弃`。用 `pt.sh index <slug> "<一句话>" <状态>` 改，会同步 INDEX。
 - 完成标准打勾的唯一依据是 journal 里有对应证据条目。
 
 ## INDEX.md
 
 ```
-| Slug | 名称 | 状态 | 最后更新 | 一句话 |
+| Slug | 名称 | 状态 | 主机 | 最后更新 | 一句话 |
 ```
 
-只用 `pt.sh new` / `pt.sh index` 改，不手编。`list` 模式只读它，不进任何项目目录。
+生成视图，不手编：名称取 charter 标题，状态取 `Status`，主机取 `Host`，日期取最后一次提交，一句话取 state「一句话概括」首行。`pt new` / `pt index` / `pt list` / 同步都会重建它。

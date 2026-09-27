@@ -59,15 +59,18 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 
 ```
 ~/.claude/project/            # 可用 PROJECT_TRACKER_ROOT 覆盖
-├── INDEX.md                  # 一行一个项目：slug、名称、状态、最后更新、一句话
+├── INDEX.md                  # 生成的索引：slug、名称、状态、主机、最后提交日期、一句话
 ├── ACTIVE                    # 最近一次 brief 的 slug，仅在同目录多项目时做平局裁决
-└── <slug>/
-    ├── charter.md            # 含  Workdir: /绝对路径 [/另一个路径 ...]
+├── FLEET                     # 仅中心机：每行一个节点的 ssh 别名（私有，不发布）
+└── <slug>/                   # 一个 git 仓；一次 checkpoint 一个提交
+    ├── charter.md            # 含  Workdir: /绝对路径 [...]  与  Host: <hostname>
     ├── plan.md  state.md  journal.md  decisions.md
     └── archive/
 ```
 
-- `Workdir` 可写多个目录，一个项目可以横跨两个仓库。
+- `Workdir` 可写多个目录，一个项目可以横跨两个仓库。`Host` 写这些路径在哪台机器上；`where` / `auto` 只认
+  Host 是本机的项目。
+- `INDEX.md` 由档案生成（charter 字段、最后提交日期、state「一句话概括」首行），不要手改。
 - 一个会话只碰一个 `<slug>/`。`list` 只读 `INDEX.md`。其他项目的文件不打开、不引用、不总结，即使同一个 Workdir。
   切项目就是一次 `resume`。
 - 迁移原来放在仓库里的档案：把 `.claude/project/<slug>` 拷到 `~/.claude/project/`，在 charter 的 `Slug:` 下面
@@ -76,13 +79,17 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 ## `pt.sh`
 
 ```bash
-PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.2.0/skills/project-tracker/scripts/pt.sh
-bash $PT list                                  # INDEX + 每个项目的 Workdir
-bash $PT where                                 # 当前目录命中的进行中项目
+PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
+bash $PT list                                  # INDEX + 每个项目的主机与 Workdir（中心机先同步）
+bash $PT where                                 # 当前目录命中的、本机的进行中项目
 bash $PT auto                                  # SessionStart hook 跑的
 bash $PT brief <slug>                          # 按恢复顺序输出简报，设 ACTIVE
-bash $PT new <slug> "<名称>" [workdir ...]     # 从模板建五个文件、INDEX 加行、ACTIVE 指向
-bash $PT index <slug> "<一句话>" [状态]        # 更新 INDEX 日期/一句话；给状态则同步 charter
+bash $PT new <slug> "<名称>" [--host H] [workdir ...]  # 建档（git 仓），ACTIVE 指向
+bash $PT index <slug> "<一句话>" [状态]        # 写一句话/状态、提交、重建 INDEX
+bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
+bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
+bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
+bash $PT runs [slug | --wait <run>]            # 中心机：派活状态
 ```
 
 ## 用法
@@ -142,6 +149,33 @@ plan 一步完成、完成标准翻绿、发现死路、`/compact` 之前，skil
 格式和发布流程听那个 hub 自己的手册。没有这个文件，skill 会问写到哪。页面位置记进 `state.md`，下个会话就知道去哪更新。
 
 ```markdown
+## 多机：一台中心机管全机队（可选）
+
+项目在代码所在的机器上立：工作站、GPU 服务器、机器人都行。一台**中心机**看得到、也能接管全部项目。
+节点上只需要 `git` 和 `sshd`，节点也不需要能连回中心机。
+
+```
+          中心机（全部档案 + 派活）              ~/.claude/project/FLEET:  gpu1
+          │  ssh + git，只由中心机发起                                     robot-a
+     ┌────┴─────┬──────────┐                                             robot-b  # 常离线
+    gpu1     robot-a    robot-b     每个节点只存 Host 是它自己的项目
+```
+
+- **同步只快进。** 中心机逐个项目比较两边：谁领先听谁的。两边都有对方没有的提交就标**分叉**：不自动合并、
+  拒绝派活，由下一个 agent 用 `git merge` 按语义合（journal 两边条目都留，state 重写）。不信任任何时间戳。
+- 不搬半截：checkpoint 由 `pt index` 提交；节点有未提交改动、15 分钟内改过档案、或有派活在跑时，中心机不推。
+  空闲 30 分钟的未提交改动（忘了 checkpoint，或旧版插件根本不提交）由中心机的探测代为提交。
+- 中心机上 `pt list`、`pt brief` 先同步；systemd 用户定时器每 15 分钟同步一次，节点离线前的最后状态也不会丢
+  （见 `reference/hooks.md`）。
+- **接管**：在中心机上照常 resume、checkpoint，下次同步推回节点。轻活 `ssh <别名>`；长跑或要那台机器硬件的，
+  `pt dispatch <slug> "<任务>" --wait` 在那台机器的 tmux 里跑 `claude -p`（默认 bypassPermissions，
+  `PT_DISPATCH_MODE` 可改），它在那边 checkpoint，结果同步回来。状态、退出码、日志在节点的
+  `~/.claude/project/.runs/<run>/`。
+- 代码在别的机器上的项目：`pt new <slug> "<名称>" --host <别名> /那台机器上的路径`，下次同步就在那台机器上建好。
+- 配置：把节点别名（与 `~/.ssh/config` 一致）写进 `~/.claude/project/FLEET`，每台机器跑一次 `pt migrate`，然后 `pt sync`。
+
+已知限制：和节点共用同一个 Unix 账户的人，能读那台机器上的档案和派活日志。
+
 ## team-wiki（全团队可见）
 - 内容仓：~/team-site/src/content/notes/，一篇 = <topic>/index.mdx
 - 先读：它的 AGENTS.md。push main 即上线。
@@ -171,19 +205,24 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              唯一事实来源
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index
-    reference/templates/*.md           五个文件模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}}
+    scripts/pt.sh                      list / where / auto / brief / new / index / migrate
+    scripts/fleet.sh                   中心机：sync / dispatch / runs（由 pt.sh source）
+    scripts/probe.sh                   经 ssh 在节点上跑，只需要 git
+    reference/templates/*.md           五个文件模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
     reference/writing.md               字段规则与正反例
     reference/hooks.md                 hook 如何隔离上下文；手动安装
   hooks/hooks.json                     SessionStart / PreCompact
 tests/
   unit.sh                              直接测 pt.sh 与隔离规则，不调模型，几秒
+  fleet.sh  fakessh  fakeclaude        多机同步与派活，用假主机模拟
   run.sh / eval.sh / scenarios.sh      跑模型的四场景测试
 ```
 
 ## 测试
 
-`bash tests/unit.sh` 覆盖 `pt.sh` 每个子命令与隔离规则。`tests/run.sh <opus|fable|codex>` 用夹具仓库非交互跑四个模式，
+`bash tests/unit.sh` 覆盖 `pt.sh` 每个子命令与隔离规则。`bash tests/fleet.sh` 模拟一台中心机和三个节点（桩 `ssh`
+把别名映射到本地 HOME，桩 `claude` 扮演被派出去的 agent）：导入、推回、分叉与合并恢复、节点正在写/空闲、中心正在写、
+离线、隐私、首次下发、slug 冲突、派活成功/失败/中途崩溃。`tests/run.sh <opus|fable|codex>` 用夹具仓库非交互跑四个模式，
 `tests/eval.sh` 打印证据。见 [tests/README.md](tests/README.md)。
 
 ## License

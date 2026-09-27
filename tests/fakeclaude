@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# 假 claude -p：读派活 prompt，照 project-tracker 的规矩 checkpoint。
+# 行为由节点 HOME 下的 .fake_claude 控制：sleep <秒> / fail / nocommit（只写 journal 不 pt index）
+p=$(cat)
+id=$(sed -n 's/.*run id: \([a-z0-9-]*\).*/\1/p' <<<"$p" | head -n1)
+slug=$(sed -n 's/^项目：\([a-z0-9-]*\)。.*/\1/p' <<<"$p" | head -n1)
+mode=$(cat "$HOME/.fake_claude" 2>/dev/null)
+case "$mode" in
+  sleep*) sleep "${mode#sleep }" ;;
+  fail)   echo "boom" >&2; exit 3 ;;
+esac
+d="$PROJECT_TRACKER_ROOT/$slug"
+n=$(( $(grep -c '^## ' "$d/journal.md") + 1 ))
+printf '\n## %s · session %s · @%s\nGoal:     派活\nDid:      dispatched %s\nResult:   完成（假 claude，cwd=%s）\n' \
+  "$(date +%F)" "$n" "$PT_HOSTNAME" "$id" "$PWD" >> "$d/journal.md"
+[ "$mode" = nocommit ] || bash "$PT_SCRIPT" index "$slug" "派活完成 $id" >/dev/null
+echo "摘要：完成 $id"

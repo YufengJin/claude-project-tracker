@@ -1,6 +1,6 @@
 # Journal（只追加）
 
-## {{DATE}} · session 1
+## {{DATE}} · session 1 · @{{THIS_HOST}}
 Goal:     建立项目档案
 Did:      建立项目档案
 Result:   charter / plan / state / journal / decisions 五个文件建立，INDEX 加行
