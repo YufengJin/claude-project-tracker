@@ -1,11 +1,13 @@
 ---
 name: project-tracker
-description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/<slug>/ 建立可恢复、可审计的档案（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。触发：用户说"开始/立一个项目"、"继续 XX"、"我们做到哪了"、"记录进度"、"存档 / checkpoint / handoff"、"有哪些项目"、"long-horizon"、"要能追溯"，或提到 .claude/project；以及任何希望同一件事的状态、计划、决策跨会话持久的场景，即使没说"档案"二字。
+description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/<slug>/ 建立可恢复、可审计的档案（charter/plan/state/journal/decisions），新会话冷启动时用 5 行汇报恢复上下文。触发：用户说"开始/立一个项目"、"继续 XX"、"我们做到哪了"、"记录进度"、"存档 / checkpoint / handoff"、"有哪些项目"、"long-horizon"、"要能追溯"，或提到 .claude/project；以及任何希望同一件事的状态、计划、决策跨会话持久的场景，即使没说"档案"二字。用户要把项目进展写成给人看的记录放到 hub / wiki（"记到 hub 上"、"写个项目页"）时也用。
 ---
 
 # Project Tracker
 
 目标：让**另一个没有任何上下文的 Claude** 读完档案就能接着干。
+
+下面是默认做法，不是逐条清单。情况不合适时按这个目标自己判断；偏离了，在 journal 里写一句为什么。
 
 ## 存储：全局，按项目隔离
 
@@ -70,7 +72,7 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中项目就�
 
 ### resume
 
-`pt brief <slug>` 输出的顺序就是阅读顺序：INDEX 行 → charter → state → journal 最后 3 条 → ADR 标题 → plan。**不要多读**：只有 state 与 journal 对不上、或用户问历史，才往前翻 journal 或读 ADR 正文。
+`pt brief <slug>` 输出的顺序就是阅读顺序：INDEX 行 → charter → state → journal 最后 3 条 → ADR 标题 → plan。通常读到这里就够；state 与 journal 对不上、或要查历史时，再往前翻 journal、读 ADR 正文。
 
 然后 **≤5 行**汇报：在哪、上次做了什么、下一步、卡在哪、待拍板项。不贴文件原文。
 
@@ -91,6 +93,14 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中项目就�
 ## 写作规则
 
 字段固定、不写散文，详见 [reference/writing.md](reference/writing.md)。用户说的和你推断的分开，推测标"（推测）"。判据：一个月后在另一个话题的会话里这条还有用吗。
+
+## 给人看的记录（可选）
+
+上面的档案是写给下一个 agent 的。用户**明确要**一份给人读的项目记录时（"记到 hub 上"、"写个项目页"），才另写一份；没要就不写，也不主动提。
+
+去向写在 `$ROOT/HUBS.md`（本机私有，不进插件仓库）：每个 hub 一段，说明在哪、给谁看、先读哪份手册。没有这个文件就问用户写到哪。写法、版式、发布流程都按那个 hub 自己的手册和 skill 来，这里不重复。
+
+档案仍是事实源，hub 页从档案取材、讲给人听，不反过来。写完在 state.md 记一行页面位置，下次更新就知道去哪。
 
 ## 何时不用
 

@@ -30,3 +30,7 @@ Claude Code 用 `claude -p --model <id>`，Codex 用 `codex exec`，两者都以
 
 2026-09-08 在 ws02 上用 opus、fable、codex(gpt-6-astra) 各跑四个场景，12/12 通过；
 唯一偏差是 codex 在同一会话内第二次 checkpoint 时新开了 session 号，已在 SKILL.md 补规则后复测通过。
+
+2026-09-27（v0.3.0，加"给人看的记录"）用 opus 子代理只读演练：旧版在档案里没记过 hub 的项目上，为找去向 grep 了其他项目的档案、
+约 6 次调用后仍要猜是哪个 hub；新版读一次 `HUBS.md` 就定位，没说哪个 hub 时会问；点名 hub 时按该 hub 的手册取格式；
+普通 checkpoint 不写 hub、也不主动提议。

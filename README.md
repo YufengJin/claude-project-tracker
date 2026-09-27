@@ -141,6 +141,22 @@ One session writes exactly one journal entry; a second checkpoint in the same se
 /project-tracker list
 ```
 
+### Human-readable record (optional)
+
+> "Put this project's progress on the hub."
+
+The archive is written for the next agent. Only when you ask for a record people will read does the skill
+write one, to a destination listed in `~/.claude/project/HUBS.md`. That file is yours and stays out of this
+repo: one short section per hub (team wiki, personal site, …) saying where it lives, who can read it, and
+which manual to read first. The hub's own manual decides format and publishing. Without the file the skill
+asks where to write. The page's location goes into `state.md` so the next session can update it.
+
+```markdown
+## team-wiki (whole team can read)
+- Content repo: ~/team-site/src/content/notes/, one note = <topic>/index.mdx
+- Read first: its AGENTS.md. Pushing main deploys.
+```
+
 ### Making it stick
 
 Skill triggering is probabilistic. Three layers cover each other: the hooks inject state

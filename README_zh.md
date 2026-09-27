@@ -133,6 +133,20 @@ plan 一步完成、完成标准翻绿、发现死路、`/compact` 之前，skil
 /project-tracker list
 ```
 
+### 给人看的记录（可选）
+
+> "把这个项目的进展放到 hub 上。"
+
+档案是写给下一个 agent 的。只有你要一份给人读的记录时，skill 才另写，去向列在 `~/.claude/project/HUBS.md`。
+这个文件归你自己，不进本仓库：每个 hub（团队 wiki、个人站……）一小段，写在哪、谁能看、先读哪份手册。
+格式和发布流程听那个 hub 自己的手册。没有这个文件，skill 会问写到哪。页面位置记进 `state.md`，下个会话就知道去哪更新。
+
+```markdown
+## team-wiki（全团队可见）
+- 内容仓：~/team-site/src/content/notes/，一篇 = <topic>/index.mdx
+- 先读：它的 AGENTS.md。push main 即上线。
+```
+
 ### 让流程变硬性
 
 skill 触发是概率性的。三层互相兜底：hook 确定性地灌状态；项目 `CLAUDE.md` 一段把规则变硬；skill 提供细节和模板。
