@@ -134,6 +134,17 @@ npt a index pa "list 前节点的新进展" >/dev/null
 out=$(hpt list)
 check "list 拿到最新 + 在线统计"         'grep -q "^| pa |.*list 前节点的新进展 |$" <<<"$out" && grep -q "已同步：2/3 台节点在线" <<<"$out"'
 
+echo "# 中心自己的空闲未提交改动（旧版会话写的）"
+echo "旧版会话写的" >> "$H/hubonly/state.md"
+touch -d "2 hours ago" "$H/hubonly"/*.md "$H/hubonly/archive/.keep"
+PT_IDLE=3600 hpt sync -q >/dev/null
+check "同步时代为提交"                   '[ -z "$(git -C "$H/hubonly" status --porcelain)" ] && git -C "$H/hubonly" log -1 --format=%s | grep -q "^autosync @host-hub (idle)"'
+echo "合并到一半" >> "$H/hubonly/plan.md"; git -C "$H/hubonly" rev-parse HEAD > "$H/hubonly/.git/MERGE_HEAD"
+touch -d "2 hours ago" "$H/hubonly"/*.md
+PT_IDLE=3600 hpt sync -q >/dev/null
+check "合并进行中不代为提交"             '[ -n "$(git -C "$H/hubonly" status --porcelain)" ]'
+rm -f "$H/hubonly/.git/MERGE_HEAD"; git -C "$H/hubonly" checkout -q plan.md
+
 echo "# 派活"
 out=$(hpt dispatch hubonly "x" 2>&1)
 check "本机项目不派"                     'grep -q "Host 就是本机" <<<"$out"'

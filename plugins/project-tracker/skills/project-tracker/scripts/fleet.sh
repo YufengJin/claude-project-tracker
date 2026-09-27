@@ -149,6 +149,8 @@ fleet_sync() {       # fleet_sync [-q] [--summary] [别名 ...]
     _fleet_filter "$quiet" < "$tmpd/$a"
   done
   rm -rf "$tmpd"
+  # 中心机自己的档案：空闲的未提交改动（旧版会话、忘了 checkpoint）同样代为提交
+  PT_HOSTNAME="$THIS_HOST" bash "$HERE/probe.sh" "$ROOT" "$IDLE" >/dev/null 2>&1
   flock -u 9
   render_index
   [ $summary = 1 ] && echo "[project-tracker] 已同步：$up/$n 台节点在线"

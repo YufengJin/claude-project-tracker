@@ -41,4 +41,4 @@ Claude Code 用 `claude -p --model <id>`，Codex 用 `codex exec`，两者都以
 `.offline` 就模拟连不上；`fakeclaude` 读派活 prompt，照规矩追加 journal 并 `pt.sh index`，行为由节点 HOME 下的
 `.fake_claude`（`sleep N` / `fail`）控制。tmux 用每台假主机独立的 socket，测试结束全部清掉。
 
-2026-09-27（v0.4.0）：unit 56/56、fleet 51/51。
+2026-09-27（v0.4.1）：unit 56/56、fleet 54/54；真机（5 节点）同步、往返、分叉演练、milos 与 skye02 真 claude 派活通过。
