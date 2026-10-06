@@ -20,7 +20,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 └── <slug>/          # git 仓
     ├── charter.md  # 目标、完成标准、边界、验证方法、Workdir、Host。写一次，极少改
     ├── plan.md     # 怎么做。可重写
-    ├── state.md    # 现在在哪 + 别再试的路 + 快速启动。可重写，≤100 行；「一句话概括」首行进 INDEX
+    ├── state.md    # 现在在哪 + 别再试的路 + 快速启动。可重写，≤100 行（约 8000 字）；「一句话概括」首行进 INDEX
     ├── journal.md  # 只追加，一会话一条
     ├── decisions.md# 只追加的 ADR
     └── archive/    # state 压缩掉的旧内容
@@ -42,13 +42,19 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 |---|---|
 | `pt list` | 打印 INDEX，每个 slug 附主机与 Workdir |
 | `pt where` | 当前目录命中的、Host 是本机的进行中项目 |
-| `pt brief <slug>` | 按恢复顺序打印简报并设 ACTIVE |
+| `pt brief <slug>` | 按恢复顺序打印简报、设 ACTIVE，并把本会话绑到这个项目 |
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
 | `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |
 
 SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机项目就自动注入简报；命中多个只列 slug 等用户点名；命中零个静默。
+
+## 上下文是工作台，档案才是记忆
+
+档案写全了，会话上下文随时可以丢：压缩、换新会话都不丢东西，长会话不必硬撑着一个越滚越大的上下文。上下文压缩时两个 hook 接力：压缩前让摘要单列「未入档的进展」，压缩后按会话绑定重新注入简报（不在 Workdir 里开的会话也一样），并提示先把这些进展 checkpoint 再接着干。
+
+简报自己也有预算：journal 只追加、不删，但 brief 只打印最后 3 条里靠后的部分，省略处给行号，要查再读原文。所以 journal 条目写增量，长证据放产物文件、条目里只记路径和关键数字。多早压缩由 Claude Code 的设置决定，见 [reference/hooks.md](reference/hooks.md)。
 
 ## 模式
 
@@ -90,7 +96,7 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 4. **追加 decisions**（若做了架构级选择）。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
 5. `pt index <slug> "<一句话>" [状态]`：写 state 的一句话、提交、重建 INDEX。项目做完或放弃在这里给状态。
 
-完成标准打勾的唯一依据是 journal 里有对应证据条目。同一会话再次 checkpoint 只改写本会话那条 journal，不新开 session 号。
+完成标准打勾的唯一依据是 journal 里有对应证据条目。同一段上下文里再次 checkpoint 只改写本段那条 journal，不新开 session 号；上下文压缩过就另起一条（brief 会重新给号），压缩前那条不再动。
 
 ## 多机：一台中心机管全机队（可选）
 

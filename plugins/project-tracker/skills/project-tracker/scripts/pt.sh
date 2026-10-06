@@ -3,8 +3,9 @@
 #
 #   pt.sh list [--no-sync]                     打印索引（中心机先同步全机队）
 #   pt.sh where                                当前目录命中的、Host=本机的进行中项目（slug 一行一个）
-#   pt.sh auto                                 SessionStart hook 用：命中 1 个→brief；多个→提示；0 个→静默
-#   pt.sh brief <slug>                         按恢复顺序输出简报，并把 ACTIVE 设为该 slug
+#   pt.sh auto                                 SessionStart hook 用：命中 1 个→brief；多个→提示；0 个→静默；压缩后按会话绑定重新注入
+#   pt.sh precompact                           PreCompact hook 用：让压缩摘要留下还没入档的进展
+#   pt.sh brief <slug>                         按恢复顺序输出简报，把 ACTIVE 设为该 slug，并把本会话绑到它
 #   pt.sh new <slug> "<名称>" [--host H] [workdir ...]   建档（git 仓 + 首次提交）；workdir 默认当前目录
 #   pt.sh index <slug> "<一句话>" [状态]       写一句话与状态、提交这次 checkpoint、重建 INDEX
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
@@ -22,9 +23,54 @@ CWD="$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P)"
 TODAY="$(date +%F)"
 THIS_HOST="${PT_HOSTNAME:-$(hostname -s)}"
 SLUG_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
+# brief 里 journal 的字节预算（约 6000 个汉字）。journal 本身只追加、不删，预算只管简报打印多少
+JOURNAL_BUDGET="${PT_BRIEF_JOURNAL_BYTES:-18000}"
+STATE_MAX_BYTES=24000
+SESS_DIR="$ROOT/.sessions"
+HOOK_IN=""
 
 die() { echo "pt.sh: $*" >&2; exit 1; }
 section() { printf '\n===== %s =====\n' "$1"; }
+
+# hook 把一段 JSON 喂给 stdin（session_id、source …）。手工调用时 stdin 是终端或空，读不到就算了
+hook_input() { [ -t 0 ] || IFS= read -r -d '' -t 2 HOOK_IN || true; }
+hook_field() { printf '%s' "$HOOK_IN" | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1; }
+session_id() { local s; s="$(hook_field session_id)"; echo "${s:-${CLAUDE_CODE_SESSION_ID:-}}"; }
+
+# 会话 ↔ 项目的绑定：brief / new 时记下，压缩后 hook 靠它知道该重新注入哪个项目（会话不在 Workdir 里开也行）
+bind_session() {
+  local sid; sid="$(session_id)"
+  [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+  mkdir -p "$SESS_DIR" && printf '%s\n' "$1" > "$SESS_DIR/$sid"
+  find "$SESS_DIR" -type f -mtime +30 -delete 2>/dev/null
+  return 0
+}
+bound_slug() {
+  local sid s; sid="$(session_id)"
+  [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+  s="$(head -n1 "$SESS_DIR/$sid" 2>/dev/null)"
+  [ -n "$s" ] && [ -f "$ROOT/$s/charter.md" ] && echo "$s"
+}
+
+# journal_tail <file> <起始行>：打印起始行之后的条目。标题都留；正文从最新往回留到预算为止，省掉的给行号
+journal_tail() {
+  LC_ALL=C awk -v start="$2" -v budget="$JOURNAL_BUDGET" '
+    NR >= start { n++; line[n] = $0; no[n] = NR }
+    END {
+      for (i = n; i >= 1; i--) {
+        if (line[i] ~ /^## /) { keep[i] = 1; continue }
+        if (full) continue
+        if (used > 0 && used + length(line[i]) > budget) { full = 1; continue }
+        keep[i] = 1; used += length(line[i])
+      }
+      for (i = 1; i <= n; i++) {
+        if (keep[i]) {
+          if (cut) { printf "…（省略 journal.md 第 %d–%d 行，约 %d 字节；要查再读原文）\n", from, no[i-1], cut; cut = 0 }
+          print line[i]
+        } else { if (!cut) from = no[i]; cut += length(line[i]) }
+      }
+    }' "$1"
+}
 
 # 读 charter 里的字段：field <slug> <Key>
 field() { sed -n "s/^$2:[[:space:]]*//p" "$ROOT/$1/charter.md" 2>/dev/null | head -n1; }
@@ -173,7 +219,7 @@ cmd_where() {
 }
 
 cmd_brief() {
-  local SLUG="$1" DIR="$ROOT/$1" h a=""
+  local SLUG="$1" DIR="$ROOT/$1" MODE="${2:-}" h a=""
   # 中心机：远程项目先同步这一个；本机还没有的先全机队同步一次
   if is_hub; then
     [ -f "$DIR/charter.md" ] || fleet_sync -q >/dev/null 2>&1
@@ -184,6 +230,7 @@ cmd_brief() {
   fi
   [ -d "$DIR" ] || die "项目不存在: $DIR（先 pt.sh list）"
   printf '%s\n' "$SLUG" > "$ROOT/ACTIVE"
+  bind_session "$SLUG"
   render_index
 
   echo "[project-tracker] 项目简报: $SLUG  ($DIR)"
@@ -214,7 +261,7 @@ cmd_brief() {
     TOTAL=$(grep -c '^## ' "$DIR/journal.md")
     START=$(grep -n '^## ' "$DIR/journal.md" | tail -n 3 | head -n 1 | cut -d: -f1)
     echo "(共 $TOTAL 条，本会话 session 号 = $((TOTAL + 1))，标题写 @$THIS_HOST)"
-    [ -n "$START" ] && tail -n +"$START" "$DIR/journal.md"
+    [ -n "$START" ] && journal_tail "$DIR/journal.md" "$START"
   else
     echo "(缺失)"
   fi
@@ -225,26 +272,53 @@ cmd_brief() {
   section "plan.md"; cat "$DIR/plan.md" 2>/dev/null || echo "(缺失)"
 
   if [ -f "$DIR/state.md" ]; then
-    local LINES; LINES=$(wc -l < "$DIR/state.md")
-    [ "$LINES" -gt 100 ] && printf '\n[warn] state.md %s 行，超过 100 行上限，checkpoint 时压缩进 archive/\n' "$LINES"
+    local LINES BYTES; LINES=$(wc -l < "$DIR/state.md"); BYTES=$(wc -c < "$DIR/state.md")
+    if [ "$LINES" -gt 100 ] || [ "$BYTES" -gt "$STATE_MAX_BYTES" ]; then
+      printf '\n[warn] state.md %s 行 / %s 字节，超过 100 行或 %s 字节的上限，checkpoint 时压缩进 archive/\n' "$LINES" "$BYTES" "$STATE_MAX_BYTES"
+    fi
   fi
-  printf '\n[project-tracker] 读完给用户 ≤5 行汇报：在哪 / 上次做了什么 / 下一步 / 卡在哪 / 待拍板项。\n'
+  if [ "$MODE" = compact ]; then
+    printf '\n[project-tracker] 上下文刚被压缩，以上是档案里的现状。压缩摘要里有、档案里还没有的进展，先 checkpoint（追加一条新的 journal，session 号见上），再接着做手上的事；不用向用户复述简报。\n'
+  else
+    printf '\n[project-tracker] 读完给用户 ≤5 行汇报：在哪 / 上次做了什么 / 下一步 / 卡在哪 / 待拍板项。\n'
+  fi
 }
 
 cmd_auto() {
   [ -d "$ROOT" ] || exit 0
-  local hits active
+  hook_input
+  local hits active bound src mode=""
+  src="$(hook_field source)"; [ "$src" = compact ] && mode=compact
+  bound="$(bound_slug)"
   hits="$(cmd_where)"
+  # 压缩之后：会话绑过项目就重新注入那个项目，不管当前目录在哪
+  if [ -n "$bound" ] && { [ -n "$mode" ] || printf '%s\n' "$hits" | grep -qx "$bound"; }; then
+    cmd_brief "$bound" "$mode"; return
+  fi
   [ -z "$hits" ] && exit 0
   active="$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
   if [ "$(printf '%s\n' "$hits" | wc -l)" -eq 1 ]; then
-    cmd_brief "$hits"
+    cmd_brief "$hits" "$mode"
   elif [ -n "$active" ] && printf '%s\n' "$hits" | grep -qx "$active"; then
-    cmd_brief "$active"
+    cmd_brief "$active" "$mode"
   else
     echo "[project-tracker] 当前目录有多个进行中项目：$(printf '%s' "$hits" | tr '\n' ' ')"
     echo "未加载任何档案。用户说\"继续 <slug>\"后再跑 pt.sh brief <slug>。"
   fi
+}
+
+# PreCompact hook 的 stdout 会并进压缩指令：让摘要把还没入档的进展留下来，压缩后才补得了 checkpoint
+cmd_precompact() {
+  [ -d "$ROOT" ] || exit 0
+  hook_input
+  local slug hits
+  slug="$(bound_slug)"
+  if [ -z "$slug" ]; then
+    hits="$(cmd_where)"
+    [ -n "$hits" ] && [ "$(printf '%s\n' "$hits" | wc -l)" -eq 1 ] && slug="$hits"
+  fi
+  [ -n "$slug" ] || exit 0
+  echo "本会话在做 project-tracker 项目 $slug（档案 $ROOT/$slug）。摘要里单列一节「未入档的进展」，写上次 checkpoint（pt.sh index）之后的：结果和证据（命令、数字、产物路径）、走不通的路和原因、做出的决定和用户原话、还在后台跑的任务和它的完成标记、下一步。压缩后要据此补 journal。"
 }
 
 cmd_new() {
@@ -273,6 +347,7 @@ cmd_new() {
   commit_all "$DIR" "new @$THIS_HOST: $NAME" || die "git 提交失败: $DIR"
   render_index
   printf '%s\n' "$SLUG" > "$ROOT/ACTIVE"
+  bind_session "$SLUG"
 
   echo "[project-tracker] 已建档: $DIR  (Host: $HOSTV  Workdir: $WORKDIR)"
   echo "下一步：把用户的回答填进 charter.md（目标/完成标准/不做/约束/验证），再写 plan.md。"
@@ -335,6 +410,7 @@ case "${1:-}" in
   list)     shift; cmd_list "$@" ;;
   where)    cmd_where ;;
   auto)     cmd_auto ;;
+  precompact) cmd_precompact ;;
   brief)    [ -n "${2:-}" ] || die "用法: pt.sh brief <slug>"; cmd_brief "$2" ;;
   new)      shift; cmd_new "$@" ;;
   index)    shift; cmd_index "$@" ;;
@@ -342,5 +418,5 @@ case "${1:-}" in
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,15p' "$0"; exit 1 ;;
+  *)        sed -n '2,16p' "$0"; exit 1 ;;
 esac

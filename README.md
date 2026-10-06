@@ -42,7 +42,10 @@ The plugin ships two hooks (`hooks/hooks.json`):
 - `SessionStart` (startup / resume / compact) runs `pt.sh auto`. If exactly one in-progress project
   claims the current directory, its brief is injected. If several do, only their slugs are listed and
   nothing is loaded until you name one. If none does, the hook is silent.
-- `PreCompact` reminds the model to checkpoint before context is compacted.
+- `PreCompact` runs `pt.sh precompact`: its output joins the compaction instructions, so the summary keeps
+  progress that has not been checkpointed yet. After compaction, `SessionStart` re-injects the brief of the
+  project this session is bound to (wherever the session was started) and asks for that checkpoint.
+  The brief itself is budgeted: only the tail of the last three journal entries is printed.
 
 ### Codex CLI
 

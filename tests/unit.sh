@@ -6,7 +6,7 @@ PT="$S/../plugins/project-tracker/skills/project-tracker/scripts/pt.sh"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export PROJECT_TRACKER_ROOT="$T/root" PT_HOSTNAME=host-me
 mkdir -p "$T/repoA/sub" "$T/repoB" "$T/other"
-unset CLAUDE_PROJECT_DIR
+unset CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID
 pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "  ok   $1"; }
 bad()  { fail=$((fail+1)); echo "  FAIL $1"; }
@@ -71,6 +71,45 @@ check "远程项目 brief 提示 Host"        'bash "$PT" brief gamma | grep -q 
 check "brief 不存在的 slug 报错"       '! bash "$PT" brief nope 2>/dev/null'
 seq 1 120 | sed "s/^/- line /" >> "$T/root/alpha/state.md"
 check "state >100 行告警"              'bash "$PT" brief alpha | grep -q "超过 100 行"'
+bash "$PT" new wide "长行的 state" "$T/other/wide" >/dev/null
+python3 -c "print('- ' + '字' * 9000)" >> "$T/root/wide/state.md"
+check "state 行数没超但太长也告警"      'bash "$PT" brief wide | grep -q "\[warn\] state.md"'
+
+echo "# brief 的 journal 预算"
+bash "$PT" new big "大 journal" "$T/other/big" >/dev/null
+{ printf '\n## 2026-02-01 · session 2\nGoal: 早先的目标\n'
+  python3 -c "
+for i in range(400): print('续 %d：' % i + '证据' * 60)"
+  printf 'Next: 倒数第二条的下一步\n\n## 2026-02-02 · session 3\nGoal: 最新的目标\nNext: 最新的下一步\n'; } >> "$T/root/big/journal.md"
+out=$(bash "$PT" brief big)
+check "超预算时简报仍然很小"            '[ "$(printf %s "$out" | wc -c)" -lt 30000 ]'
+check "三条的标题都在"                 'grep -q "^## .*session 1" <<<"$out" && grep -q "^## .*session 2" <<<"$out" && grep -q "^## .*session 3" <<<"$out"'
+check "最新一条完整、上一条留结尾"      'grep -q "^Goal: 最新的目标" <<<"$out" && grep -q "^Next: 最新的下一步" <<<"$out" && grep -q "^Next: 倒数第二条的下一步" <<<"$out" && grep -q "^续 399：" <<<"$out"'
+check "省掉的开头给出行号"             'grep -q "省略 journal.md 第 [0-9]*–[0-9]* 行" <<<"$out" && ! grep -q "^续 0：" <<<"$out" && ! grep -q "早先的目标" <<<"$out"'
+check "journal 原文没被动"             '[ "$(grep -c "^续 " "$T/root/big/journal.md")" = 400 ]'
+check "预算可调"                       '[ "$(PT_BRIEF_JOURNAL_BYTES=900000 bash "$PT" brief big | grep -c "^续 ")" = 400 ]'
+out=$(bash "$PT" brief alpha)
+check "没超预算的 journal 原样打印"     '! grep -q "省略 journal.md" <<<"$out" && grep -q "^Goal: x" <<<"$out"'
+
+echo "# 会话绑定与压缩"
+CLAUDE_CODE_SESSION_ID=sess-1 bash "$PT" brief alpha >/dev/null
+check "brief 把会话绑到项目"            '[ "$(cat "$T/root/.sessions/sess-1")" = alpha ]'
+check "没有会话号就不绑"               '[ "$(ls "$T/root/.sessions" | wc -l)" = 1 ]'
+out=$(cd "$T/other" && printf '{"session_id":"sess-1","source":"compact"}' | bash "$PT" auto)
+check "压缩后按绑定重新注入（不在 Workdir 里）" 'grep -q "项目简报: alpha" <<<"$out" && grep -q "上下文刚被压缩" <<<"$out" && ! grep -q "≤5 行汇报" <<<"$out"'
+check "启动时不在 Workdir 里仍然静默"   '[ -z "$(cd "$T/other" && printf "{\"session_id\":\"sess-1\",\"source\":\"startup\"}" | bash "$PT" auto)" ]'
+check "没绑过的会话压缩后静默"          '[ -z "$(cd "$T/other" && printf "{\"session_id\":\"sess-x\",\"source\":\"compact\"}" | bash "$PT" auto)" ]'
+out=$(cd "$T/repoB" && printf '{"session_id":"sess-1","source":"compact"}' | bash "$PT" auto)
+check "压缩后绑定优先于当前目录"        'grep -q "项目简报: alpha" <<<"$out" && ! grep -q "项目简报: beta" <<<"$out"'
+out=$(cd "$T/repoB" && printf '{"session_id":"sess-x","source":"compact"}' | bash "$PT" auto)
+check "没绑定时压缩后按目录注入并提示 checkpoint" 'grep -q "项目简报: beta" <<<"$out" && grep -q "上下文刚被压缩" <<<"$out"'
+out=$(cd "$T/other" && printf '{"session_id":"sess-1","trigger":"auto"}' | bash "$PT" precompact)
+check "precompact 给绑定的项目出压缩指令" 'grep -q "项目 alpha" <<<"$out" && grep -q "未入档的进展" <<<"$out"'
+check "按目录注入的简报也绑定会话"       '[ "$(cat "$T/root/.sessions/sess-x")" = beta ]'
+check "precompact 无关会话静默"         '[ -z "$(cd "$T/other" && printf "{\"session_id\":\"sess-y\"}" | bash "$PT" precompact)" ]'
+check "precompact 按目录命中单个项目"    'cd "$T/repoB" && printf "{\"session_id\":\"sess-y\"}" | bash "$PT" precompact | grep -q "项目 beta"'
+n0=$(ls "$T/root/.sessions" | wc -l)
+check "会话号不合法不落盘"              '(cd "$T/other" && CLAUDE_CODE_SESSION_ID="../x" bash "$PT" brief alpha >/dev/null); [ ! -e "$T/root/x" ] && [ "$(ls "$T/root/.sessions" | wc -l)" = "$n0" ]'
 
 echo "# index"
 n0=$(git -C "$T/root/alpha" rev-list --count HEAD)

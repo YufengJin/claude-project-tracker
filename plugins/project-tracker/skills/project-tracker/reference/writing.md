@@ -24,12 +24,13 @@ Open:     新冒出来的问题
 
 - `Result` 反例："完成了"。正例："完成。`pytest tests/ -q` 从 12 failed 降到 0 failed，41s"。
 - `Learned` 反例："学到很多"。正例："Tsit5 对这个 ODE 太刚性会发散，换 Kvaerno5 后收敛"。
-- session N = `grep -c '^## ' journal.md` + 1，brief 会直接打印（连同本机 hostname）。标题里的 `@hostname` 让多机时知道这条是在哪台机器上写的。**一次会话只有一条**：同一会话内再次 checkpoint 只改写本会话这条末尾条目，历史条目一个字节都不动。
+- session N = `grep -c '^## ' journal.md` + 1，brief 会直接打印（连同本机 hostname）。标题里的 `@hostname` 让多机时知道这条是在哪台机器上写的。**一段上下文只有一条**：同一段上下文里再次 checkpoint 只改写本段这条末尾条目，历史条目一个字节都不动；上下文压缩之后另起一条（压缩后的简报会给新号），不回头续写压缩前那条。
+- 条目写增量，不重述前面条目已有的内容。长证据（日志、表格、逐项结果）放产物文件，条目里记路径和关键数字——brief 只打印最后 3 条里靠后的约 6000 字，超出的部分下个会话默认看不到。
 
 ## state.md
 
 - 「一句话概括」的第一行就是 INDEX 里的一句话，`pt index` 会改写它；后面几行随意补充。
-- 硬上限 100 行。超了就把"已完成"整段挪进 `archive/state-YYYY-MM-DD.md`（顶部加一行 `Archived from state.md on YYYY-MM-DD`），这里留一行摘要。
+- 硬上限 100 行、约 8000 字（一行别写成一段）。超了就把"已完成"整段挪进 `archive/state-YYYY-MM-DD.md`（顶部加一行 `Archived from state.md on YYYY-MM-DD`），这里留一行摘要。
 - "别再试"是最值钱的一节：走不通的路 + 为什么。每次 checkpoint 从 journal 的 `Learned` 提升过来。
 - "快速启动"要能直接复制运行。
 

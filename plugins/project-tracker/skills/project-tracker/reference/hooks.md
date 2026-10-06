@@ -4,7 +4,7 @@ skill 描述触发是概率性的。两个 hook 把最关键的两步变成确�
 
 ## SessionStart → `pt.sh auto`
 
-startup、`--resume`、`/compact` 之后都跑。逻辑：
+startup、`--resume`、压缩（手动或自动）之后都跑。逻辑：
 
 1. 在 `~/.claude/project/*/charter.md` 里找 `Status: 进行中` 且 `Workdir:` 包含当前目录的项目
 2. 命中 1 个 → 注入该项目简报（等价 `pt.sh brief <slug>`）
@@ -13,9 +13,18 @@ startup、`--resume`、`/compact` 之后都跑。逻辑：
 
 这就是上下文隔离的保证：一个会话最多只加载一个项目，且只在它自己的代码目录里。
 
-## PreCompact → 提醒 checkpoint
+例外是压缩之后：`pt.sh brief` / `pt.sh new` 会把会话绑到项目（`~/.claude/project/.sessions/<session_id>`，30 天后自动清），压缩后的 SessionStart 按这个绑定重新注入同一个项目的简报，会话不在 Workdir 里开也一样。这时简报末尾不再要求 5 行汇报，而是提示把摘要里未入档的进展先 checkpoint。
 
-PreCompact 不能阻断，只能提醒。压缩后 SessionStart(compact) 会重新灌简报，真正的写入靠 skill 的 checkpoint 规则兜底。
+## PreCompact → `pt.sh precompact`
+
+PreCompact hook 的 stdout 会并进压缩指令。会话绑了项目（或当前目录只命中一个项目）时，它让摘要单列一节「未入档的进展」，压缩后的 checkpoint 就有材料可写；其他会话静默。
+
+## 压缩阈值：Claude Code 的设置
+
+上面两个 hook 管的是"压缩时不丢进展"，多早压缩由 Claude Code 决定。1M 上下文的模型默认要到几十万 token 才自动压缩，而每次请求都要把整段上下文重读一遍，长会话因此很贵。档案写全之后可以放心调低：
+
+- 会话里 `/autocompact 300000`（按模型保存），或 `~/.claude/settings.json` 里 `"autoCompactWindow": 300000`（10 万到 100 万）。
+- 子代理的提示缓存默认只留 5 分钟，等一次长命令就整段重写；`"subagentPromptCacheTtl": "1h"` 可以改成 1 小时。
 
 ## 手动安装 skill 时
 
@@ -28,7 +37,7 @@ PreCompact 不能阻断，只能提醒。压缩后 SessionStart(compact) 会重�
       { "type": "command", "command": "bash ~/.claude/skills/project-tracker/scripts/pt.sh auto", "timeout": 10 }
     ]}],
     "PreCompact": [{ "matcher": "*", "hooks": [
-      { "type": "command", "command": "echo '[project-tracker] 即将压缩上下文。若本会话有项目进展且未 checkpoint，压缩后请立即追加 journal 并重写 state。'", "timeout": 5 }
+      { "type": "command", "command": "bash ~/.claude/skills/project-tracker/scripts/pt.sh precompact", "timeout": 10 }
     ]}]
   }
 }

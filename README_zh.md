@@ -38,7 +38,9 @@ claude --plugin-dir /path/to/claude-project-tracker/plugins/project-tracker
 
 - `SessionStart`（startup / resume / compact）跑 `pt.sh auto`：当前目录恰好命中一个进行中项目就注入它的简报；
   命中多个只列 slug、不加载任何档案，等你点名；命中零个静默。
-- `PreCompact` 在压缩上下文前提醒 checkpoint。
+- `PreCompact` 跑 `pt.sh precompact`：输出并进压缩指令，让摘要留下还没 checkpoint 的进展。压缩后 `SessionStart`
+  按会话绑定重新注入同一项目的简报（会话在哪个目录开的都行），并提示补 checkpoint。
+  简报自身有预算：journal 只打印最后 3 条里靠后的部分。
 
 ### Codex CLI
 
