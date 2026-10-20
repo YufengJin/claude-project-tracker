@@ -182,7 +182,8 @@ cat >> "$R/experiments.md" <<'EOF'
 | R0 | 旧问题 \| 带竖线 | 支持 |
 EOF
 out=$(bash "$PT" tree rs)
-check "tree 默认：根的认识/约束/教训"   'grep -q "认识甲" <<<"$out" && grep -q "禁读锁箱切分" <<<"$out" && grep -q "旧根教训丙" <<<"$out"'
+check "tree 默认：根的认识/约束/教训"   'grep -q "认识甲" <<<"$out" && grep -q "禁读锁箱切分" <<<"$out"'
+check "tree 默认：已关的根只给指引"     '! grep -q "旧根教训丙" <<<"$out" && grep -q "教训 见 pt tree rs --ctx Q2" <<<"$out"'
 check "tree 默认：active 带祖先链与台账" 'grep -q "^- H2 假设二 在做" <<<"$out" && grep -q "链: Q1 主问题 Q1" <<<"$out" && grep -q "台账: E1" <<<"$out"'
 check "tree 默认：open/parked 标题"     'grep -q "^- Q3 \[open\] 子问题" <<<"$out" && grep -q "^- H6 \[parked\]" <<<"$out"'
 check "tree 默认不列已关分支"           '! grep -q "假设一 已否" <<<"$out" && grep -q "已关 4 个" <<<"$out"'

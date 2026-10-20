@@ -111,7 +111,7 @@ superseded`, plus `by:` for superseded). The body has `## 判别` (what would pr
 and `## 结论` (the call, citing experiment ids); the root also holds the project-wide current understanding,
 constraints and lessons. `experiments.md` gets a `node` column so each experiment row points at the nodes it tests.
 
-`pt tree <slug>` prints the root's notes, active nodes with their ancestry, open/parked titles and consistency
+`pt tree <slug>` prints the notes of active roots (parked or closed roots get a one-line pointer), active nodes with their ancestry, open/parked titles and consistency
 warnings (dangling `parent`/`by`, closed without verdict or conclusion, ledger rows pointing at missing nodes,
 cycles); `--all` adds an index of closed branches, `--ctx ID` the context for working on one node, and
 `--ctx ID --blind` only the question, constraints and the verifier's metric so an agent can propose ideas

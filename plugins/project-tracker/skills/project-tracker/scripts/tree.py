@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tree.py — 研究树：读 <档案>/tree/*.md 与 experiments.md，打印上下文并重写 <档案>/tree.html。
 
-  tree.py <档案目录>                 根节点「当前认识/约束/教训」、进行中节点（带祖先链）、open/parked 标题、一致性告警
+  tree.py <档案目录>                 活跃根节点「当前认识/约束/教训」（搁置/已关的根只给指引）、进行中节点（带祖先链）、open/parked 标题、一致性告警
   tree.py <档案目录> --all           再加已关分支索引（ID、verdict、结论首句）
   tree.py <档案目录> --ctx ID        给一个节点干活用的上下文：根的约束/认识/教训、祖先链、兄弟、本节点全文、台账行
   tree.py <档案目录> --ctx ID --blind  只给本节点判别、根约束、考官的指标与判定依据（不给认识与兄弟）
@@ -325,6 +325,12 @@ def text_default(t, show_all):
     for r in sorted([i for i, n in t.nodes.items() if not n["parent"]], key=id_key):
         n = t.nodes[r]
         o.append(f"\n## 根 {r} [{tag(n)}] {n['title']}")
+        if n["status"] in ("parked", "closed"):
+            # 搁置或已关的根只给指引，全文按需取，免得旧线把简报撑大
+            have = [s for s in ROOT_SECTIONS if section(n, s)]
+            if have:
+                o.append(f"（{'/'.join(have)} 见 pt tree {t.slug} --ctx {r} 或 tree.html）")
+            continue
         for s in ROOT_SECTIONS:
             b = section(n, s)
             if b:
@@ -343,13 +349,20 @@ def text_default(t, show_all):
         if rows:
             o.append("  台账: " + ", ".join(r["id"] or "?" for r in rows))
     rest = [i for i in sorted(t.nodes, key=id_key) if t.nodes[i]["status"] in ("open", "parked")]
+    quiet = {}  # 搁置或已关的根下的 open/parked 只计数
     o.append("\n## open / parked")
-    if not rest:
-        o.append("(无)")
     for i in rest:
         n = t.nodes[i]
+        r = t.root_of(i)
+        if r != i and not t.nodes[r]["parent"] and t.nodes[r]["status"] in ("parked", "closed") and not show_all:
+            quiet[r] = quiet.get(r, 0) + 1
+            continue
         p = f"（{n['parent']} 下）" if n["parent"] else "（根）"
         o.append(f"- {i} [{n['status']}] {n['title']}{p}")
+    for r, k in sorted(quiet.items(), key=lambda x: id_key(x[0])):
+        o.append(f"- 根 {r}（{t.nodes[r]['status']}）下另有 {k} 个，见 --all 或 tree.html")
+    if not rest:
+        o.append("(无)")
     if show_all:
         o.append("\n## 已关分支")
         closed = [i for i in sorted(t.nodes, key=id_key) if t.nodes[i]["status"] == "closed"]

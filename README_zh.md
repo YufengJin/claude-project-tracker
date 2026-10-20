@@ -103,7 +103,7 @@ bash $PT runs [slug | --wait <run>]            # 中心机：派活状态
 refuted | inconclusive | superseded`，取代时加 `by:`）。正文 `## 判别`（跑之前写：什么结果说明它错）与 `## 结论`
 （判断，引用实验 id）；根节点另放项目级的当前认识、约束、教训。`experiments.md` 加一列 `node`，每行实验指向它判的节点。
 
-`pt tree <slug>` 打印根节点的认识/约束/教训、进行中节点及其祖先链、open/parked 标题与一致性告警（parent 或 by 悬空、
+`pt tree <slug>` 打印活跃根节点的认识/约束/教训（搁置或已关的根只给指引）、进行中节点及其祖先链、open/parked 标题与一致性告警（parent 或 by 悬空、
 closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--all` 加已关分支索引，`--ctx ID` 给在一个节点上干活的上下文，
 `--ctx ID --blind` 只给问题、约束和考官指标，方便让没见过现有猜想的 agent 独立出主意。每次运行（以及 `pt index`）重写
 `tree.html`：离线可开的单文件，可折叠的树加节点详情。`pt brief` 有研究树时用它代替台账末行。没有 `tree/` 的档案一切照旧。
