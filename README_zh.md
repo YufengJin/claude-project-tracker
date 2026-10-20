@@ -90,6 +90,7 @@ bash $PT new <slug> "<名称>" [--host H] [workdir ...]  # 建档（git 仓）�
 bash $PT index <slug> "<一句话>" [状态]        # 写一句话/状态、提交、重建 INDEX
 bash $PT research <slug>                       # 研究项目：加 verifier.md、experiments.md、tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # 研究树：打印上下文，重写 tree.html
+bash $PT monitor [--out PATH]                  # 全局研究监控：所有研究项目汇成档案根的 research.html
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
 bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
 bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
@@ -107,7 +108,7 @@ refuted | inconclusive | superseded | abandoned`，取代时加 `by:`）。正�
 closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--all` 加已关分支索引，`--ctx ID` 给在一个节点上干活的上下文，
 `--ctx ID --blind` 只给问题、约束和考官指标，方便让没见过现有猜想的 agent 独立出主意。每次运行（以及 `pt index`）重写
 `tree.html`：离线可开的单文件，默认是可缩放、平移、收起子树的交互式总览图，可切到可折叠的列表，加节点详情。`pt research` 与 `pt index`
-还会补 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它）。`pt brief` 有研究树时用它代替台账末行。没有 `tree/` 的档案一切照旧。
+还会补 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它）。`pt brief` 有研究树时用它代替台账末行。档案根的 `research.html`（`pt monitor`，`pt index` 研究项目后与中心机 sync 后自动重写）是所有研究项目的入口：每项目一张卡片（状态计数、焦点路径、告警），加最近 14 天各树的节点变化。没有 `tree/` 的档案一切照旧。
 
 ## 用法
 
@@ -222,8 +223,9 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              唯一事实来源
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / migrate
     scripts/tree.py                    研究树：解析、检查、打印上下文、渲染 tree.html（只用标准库）
+    scripts/monitor.py                 全局研究监控：汇总各研究项目与 git 历史，渲染 research.html
     scripts/fleet.sh                   中心机：sync / dispatch / runs（由 pt.sh source）
     scripts/probe.sh                   经 ssh 在节点上跑，只需要 git
     reference/templates/*.md           五个文件加 verifier / experiments / tree-root 模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}

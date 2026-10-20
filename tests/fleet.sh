@@ -196,4 +196,13 @@ out=$(hpt brief pa 2>&1)
 check "节点离线仍可 brief（用缓存）"     'grep -q "项目简报: pa" <<<"$out" && grep -q "a 上次不可达" <<<"$out"'
 rm -f "$T/hosts/a/.offline"
 
+echo "# 研究监控：sync 后中心生成 research.html"
+check "还没有研究项目 → 不生成"            '[ ! -f "$H/research.html" ]'
+npt b new rsb "B 上的研究" >/dev/null; npt b research rsb >/dev/null
+printf -- '---\ntitle: 假设甲\nparent: Q1\nstatus: open\n---\n## 判别\n预测。\n' > "$NB/rsb/tree/H1.md"
+npt b index rsb "加一个假设" >/dev/null
+hpt sync -q >/dev/null
+check "sync 后生成 research.html，含卡片与节点链接" '[ -f "$H/research.html" ] && grep -q "href=\"rsb/tree.html\"" "$H/research.html" && grep -q "href=\"rsb/tree.html#H1\"" "$H/research.html"'
+check "最近动态带节点机器（别名）与上次同步"  'grep -q "@b</div>" "$H/research.html" && grep -q "上次同步" "$H/research.html"'
+
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

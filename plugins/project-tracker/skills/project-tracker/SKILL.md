@@ -17,6 +17,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 ~/.claude/project/
 ├── INDEX.md        # 生成的索引（pt 维护，不手改）：slug、名称、状态、主机、最后更新、一句话
 ├── ACTIVE          # 最近一次 brief 的 slug，仅作多项目同目录时的平局裁决
+├── research.html   # 全局研究监控（pt monitor 生成，不在任何项目仓里）
 └── <slug>/          # git 仓
     ├── charter.md  # 目标、完成标准、边界、验证方法、Workdir、Host。写一次，极少改
     ├── plan.md     # 怎么做。可重写
@@ -51,6 +52,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话进 INDEX，不是提交说明） |
 | `pt research <slug>` | 研究项目：加考官卡 `verifier.md`、实验台账 `experiments.md` 与研究树根节点 `tree/Q1.md`（已有的不动） |
 | `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
+| `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |
 
@@ -121,6 +123,7 @@ brief 出现"分叉"时，两边各有对方没有的 checkpoint：先 `git merg
 - `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点或行列数不对、成环、frontmatter 写错、被忽略的文件、合并冲突标记）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别（其中的 `[[ID]]` 换成 `[[…]]`）、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意——所以问题节点的判别不写候选与排名。根的约束里 `[[Q5]]` 引用了另一个根时，那个根的约束也一并给。
 - 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，默认是交互式总览图（左→右的树，形状分问题与假设，填充与图标分状态与 verdict；缩放平移、点节点看详情、收起子树、「只看活着」把全关的子树收成一个桩），可切到可折叠的列表；右侧是节点详情与挂接的台账行。`pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
 - `tree.html` 是派生物：合并冲突里不用手合，`pt index` 会重新生成并收下；别的文件还留着冲突标记时 `pt index` 拒绝提交。`pt research` 与 `pt index` 会在档案根补上 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 搜索跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它），已有的行不重复加。
+- 跨项目看研究进展：打开档案根的 `research.html`（`pt monitor` 生成；`pt index` 研究项目后、中心机每次 sync 后自动重写，失败只告警）。每个研究项目一张卡片（节点状态计数、焦点路径即每个 active 叶节点的根→节点链、告警数），点进各自的 `tree.html`；下面是最近 14 天的节点变化（新增、status / verdict 变化、换父、删除，取自各档案 git 历史与提交所在机器）。它不在任何项目仓里，不提交。
 - 没有 `tree/` 的档案一切照旧；旧台账没有 `node` 列也照常解析。字段细节见 [reference/writing.md](reference/writing.md)。
 
 ## 写作规则

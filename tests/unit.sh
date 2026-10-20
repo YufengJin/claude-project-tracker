@@ -465,6 +465,45 @@ rm -f "$B/tree/"*.md
 out=$(bash "$PT" research rb)
 check "轻 research：tree/ 没有节点时补 Q1，冻结后不催填考官卡" '[ -f "$B/tree/Q1.md" ] && grep -q "考官卡已冻结" <<<"$out" && ! grep -q "先填 verifier.md" <<<"$out"'
 
+echo "# monitor（全局研究监控 research.html）"
+export PROJECT_TRACKER_ROOT="$T/mon"
+M="$T/mon"; NOW=$(date +%s)
+at(){ export GIT_COMMITTER_DATE="@$((NOW - $1)) +0000" GIT_AUTHOR_DATE="@$((NOW - $1)) +0000"; }
+nd(){ printf -- '---\ntitle: %s\nparent: %s\nstatus: %s\n%b---\n## 判别\n预测。\n## 结论\n%b\n' "$3" "$4" "$5" "$6" "$7" > "$M/$1/tree/$2.md"; }
+at 1800000; bash "$PT" new ra "研究甲" "$T/other/ra" >/dev/null; bash "$PT" research ra >/dev/null   # 20 天前：窗口外
+at 4900; bash "$PT" new rb "研究乙" "$T/other/rb" >/dev/null; bash "$PT" research rb >/dev/null
+bash "$PT" new plain "普通项目" "$T/other/plain" >/dev/null
+at 4000; nd ra H1 "甲一" Q1 open "" ""; nd ra H2 "甲二" Q1 open "" ""; nd ra Q2 "甲根二" "" open "" ""
+bash "$PT" index ra "加三个节点" >/dev/null
+check "pt index 研究项目后生成 research.html" '[ -f "$M/research.html" ]'
+at 3000; nd rb H1 '乙一 <script>alert(1)</script> " onmouseover=x' Q1 open "" ""; bash "$PT" index rb '<img src=x onerror=alert(2)>' >/dev/null
+at 2000; nd ra H1 "甲一" Q1 active "" ""; bash "$PT" index ra "H1 转 active" >/dev/null
+at 1000; nd ra H1 "甲一" Q2 active "" ""; nd ra H2 "甲二" Q1 closed 'verdict: refuted\n' "否：E1。"; bash "$PT" index ra "H2 否，H1 挪到 Q2" >/dev/null
+at 800; nd ra H2 "甲二" Q1 closed 'verdict: inconclusive\n' "说不清：E1。"; bash "$PT" index ra "H2 改判" >/dev/null
+at 500; rm "$M/rb/tree/H1.md"; git -C "$M/rb" add -A; git -C "$M/rb" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm "手工 @far-box: 删 H1"
+at 100; bash "$PT" index plain "普通项目不进页面" >/dev/null
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+ev=$(python3 "$(dirname "$PT")/monitor.py" "$M" --events | cut -f2-6)
+exp=$(printf '%s\n' "rb	H1	del	open	far-box" "ra	H2	verdict	closed/refuted → closed/inconclusive	本机" \
+  "ra	H1	parent	Q1 → Q2	本机" "ra	H2	status	open → closed/refuted	本机" "ra	H1	status	open → active	本机" \
+  "rb	H1	add	open	本机" "ra	H1	add	open	本机" "ra	H2	add	open	本机" "ra	Q2	add	open	本机" "rb	Q1	add	active	本机")
+check "时间线：新增/状态/结论/换父/删除、机器、跨项目按时间倒序、窗口外不算" '[ "$ev" = "$exp" ]'
+out=$(bash "$PT" monitor); HT="$M/research.html"
+check "pt monitor 汇报并重写"            'grep -q "2 个研究项目" <<<"$out" && grep -q "10 条动态" <<<"$out"'
+check "非研究项目不进页面"               '! grep -q "plain" "$HT" && grep -q "href=\"ra/tree.html\"" "$HT" && grep -q "href=\"rb/tree.html\"" "$HT"'
+check "卡片按最近 tree/ 变动倒序（rb 先）" '[ "$(grep -o "<article class=card><h3><a href=\"r[ab]/" "$HT" | cut -d\" -f2 | tr -d "\n")" = "rb/ra/" ]'
+check "事件链到节点（删除的只到 tree.html）" 'grep -q "href=\"ra/tree.html#H2\"" "$HT" && grep -q "<li><a class=id href=\"rb/tree.html\">H1</a>" "$HT"'
+check "焦点路径：根 → 活跃叶，带标题悬停" 'grep -q "<a class=id href=\"ra/tree.html#Q2\" title=\"甲根二\">Q2</a><span class=sep>›</span><a class=id href=\"ra/tree.html#H1\" title=\"甲一\">H1</a>" "$HT"'
+check "计数条与图标（active / ? / 共）"   'grep -q "active 1" "$HT" && grep -q "inconclusive 1" "$HT" && grep -q "共 4" "$HT"'
+check "无外部 URL"                       '! grep -qiE "https?:|//[a-z0-9]" "$HT"'
+check "无 on* 属性"                       '! grep -qiE "<[^>]*[[:space:]]on[a-z]+=" "$HT"'
+check "注入串被转义"                     'grep -q "&lt;script&gt;alert(1)&lt;/script&gt;" "$HT" && grep -q "&lt;img src=x onerror=alert(2)&gt;" "$HT" && ! grep -q "<script>alert\|<img" "$HT"'
+check "不是中心机：不写上次同步；带自动刷新开关" '! grep -q "上次同步" "$HT" && grep -q "id=ar checked" "$HT"'
+python3 "$(dirname "$PT")/monitor.py" "$M" --out "$T/elsewhere/r.html" >/dev/null
+check "--out 别处：链接改成相对档案根"    'grep -q "href=\"../mon/ra/tree.html#H1\"" "$T/elsewhere/r.html"'
+check "monitor 不动项目档案"              '[ -z "$(git -C "$M/ra" status --porcelain)" ] && [ -z "$(git -C "$M/rb" status --porcelain)" ] && ! ls "$M"/*/research.html 2>/dev/null'
+export PROJECT_TRACKER_ROOT="$T/root"
+
 echo "# migrate（0.3 档案）"
 export PROJECT_TRACKER_ROOT="$T/old"
 mkdir -p "$T/old/legacy" "$T/old/elsewhere"

@@ -110,8 +110,12 @@ def parse_fm(lines, node):
 
 
 def parse_node(path):
-    raw = read_text(path)
-    node = {"id": os.path.basename(path)[:-3], "raw": raw, "meta": {}, "sections": [],
+    return parse_node_text(read_text(path), os.path.basename(path)[:-3])
+
+
+def parse_node_text(raw, nid):
+    """解析一个节点文件的文本（monitor 也用它读 git 历史里的旧版本）。"""
+    node = {"id": nid, "raw": raw, "meta": {}, "sections": [],
             "fm": False, "warn": []}
     w = node["warn"]
     if CONFLICT_RE.search(raw):
@@ -891,13 +895,16 @@ def graph_data(t):
 
 # 配色取自 dataviz 参考调色板：表面与墨色、分类色前三槽（蓝 active、绿 supported、红 refuted，--pairs all 两种模式都过），
 # 其余 verdict 用中性灰并靠图标区分（✓ ✗ ? → –），颜色不单独承担信息。深色用各自的色阶。
-CSS = """
-:root{--bg:#f9f9f7;--panel:#fcfcfb;--fg:#0b0b0b;--mut:#52514e;--faint:#898781;--line:#e1e0d9;--edge:#c3c2b7;--hl:#f0efec;--link:#256abf;--warnc:#d03b3b;
+# PALETTE 由 tree.html 与 research.html（monitor.py）共用
+PALETTE = """:root{--bg:#f9f9f7;--panel:#fcfcfb;--fg:#0b0b0b;--mut:#52514e;--faint:#898781;--line:#e1e0d9;--edge:#c3c2b7;--hl:#f0efec;--link:#256abf;--warnc:#d03b3b;
 --open:#52514e;--active:#2a78d6;--parked:#898781;--closed:#898781;--on:#ffffff;--on-inc:#ffffff;
 --supported:#008300;--refuted:#e34948;--inconclusive:#52514e;--superseded:#898781;--abandoned:#898781;--other:#898781;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#0d0d0d;--panel:#1a1a19;--fg:#f0efec;--mut:#c3c2b7;--faint:#898781;--line:#2c2c2a;--edge:#55544f;--hl:#2c2c2a;--link:#6da7ec;--warnc:#e66767;
 --open:#c3c2b7;--active:#3987e5;--parked:#898781;--closed:#898781;--on:#ffffff;--on-inc:#1a1a19;
 --supported:#008300;--refuted:#e66767;--inconclusive:#c3c2b7;--superseded:#898781;--abandoned:#898781;--other:#898781;color-scheme:dark}}
+"""
+
+CSS = PALETTE + """
 *{box-sizing:border-box}html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--fg);font:14px/1.55 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif;display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}

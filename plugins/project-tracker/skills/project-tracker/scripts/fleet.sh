@@ -153,6 +153,7 @@ fleet_sync() {       # fleet_sync [-q] [--summary] [别名 ...]
   PT_HOSTNAME="$THIS_HOST" bash "$HERE/probe.sh" "$ROOT" "$IDLE" >/dev/null 2>&1
   flock -u 9
   render_index
+  render_monitor
   [ $summary = 1 ] && echo "[project-tracker] 已同步：$up/$n 台节点在线"
   return 0
 }

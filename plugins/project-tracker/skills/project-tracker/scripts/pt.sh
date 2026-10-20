@@ -10,12 +10,14 @@
 #   pt.sh index <slug> "<一句话>" [状态]       写一句话（进 state 与 INDEX，不是提交说明）与状态、提交这次 checkpoint、重建 INDEX
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
+#   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
 #   pt.sh runs [slug | --wait <run>]           中心机：派活状态 / 等某次派活结束
 #
-# 隔离原则：任何子命令只读写一个 <slug>/ 目录；list 只读各项目 charter 字段与 state 的一句话。
+# 隔离原则：任何子命令只读写一个 <slug>/ 目录；list 只读各项目 charter 字段与 state 的一句话；
+# monitor 只读各研究项目的 tree/ 与 git 历史，只写档案根的 research.html。
 set -u
 
 ROOT="${PROJECT_TRACKER_ROOT:-$HOME/.claude/project}"
@@ -207,6 +209,13 @@ render_index() {
         "$s" "$(sed -n '1s/^# *//p' "$d/charter.md" | sed 's/|/／/g')" "$st" "$(host_label "$s")" "$upd" "$flag" "$sum"
     done | sort -t$'\t' -k1,1n -k2,2r | cut -f3-
   } > "$tmp" && mv "$tmp" "$ROOT/INDEX.md"
+}
+
+# 全局研究监控页 research.html：有研究项目（tree/）才写；失败只告警
+render_monitor() {
+  ls -d "$ROOT"/*/tree >/dev/null 2>&1 || return 0
+  python3 "$HERE/monitor.py" "$ROOT" >/dev/null 2>&1 || echo "[warn] research.html 没生成（照常继续）：pt.sh monitor 看原因"
+  return 0
 }
 
 # 多机部分（中心机的 sync / dispatch / runs）
@@ -472,6 +481,7 @@ cmd_index() {
   fi
   commit_all "$ROOT/$SLUG" "checkpoint @$THIS_HOST: $SUMMARY" || die "git 提交失败: $ROOT/$SLUG"
   render_index
+  [ -d "$ROOT/$SLUG/tree" ] && render_monitor
   echo "[project-tracker] 已提交: $SLUG | $(field "$SLUG" Status) | $TODAY | $SUMMARY"
 }
 
@@ -522,8 +532,9 @@ case "${1:-}" in
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   migrate)  cmd_migrate ;;
+  monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,18p' "$0"; exit 1 ;;
+  *)        sed -n '2,20p' "$0"; exit 1 ;;
 esac

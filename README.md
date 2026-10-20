@@ -96,6 +96,7 @@ bash $PT new <slug> "<name>" [--host H] [workdir ...]  # scaffold the archive as
 bash $PT index <slug> "<one-liner>" [status]   # set the one-liner/status, commit, rebuild INDEX
 bash $PT research <slug>                       # research project: add verifier.md, experiments.md, tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # research tree: print context, rewrite tree.html
+bash $PT monitor [--out PATH]                  # global research monitor: all research projects in <root>/research.html
 bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
 bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
 bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
@@ -119,6 +120,8 @@ without seeing the existing ones. Every run (and every `pt index`) rewrites `tre
 offline page that opens on an interactive overview graph (zoom, pan, fold subtrees, "alive only") with a
 collapsible list as the alternate view, plus per-node details. `pt research` and `pt index` also add `.ignore`
 (`tree.html`, so ripgrep / Grep skip it) and `.gitattributes` (`tree.html -diff`, so git diff does not expand it). `pt brief` shows the tree instead of the ledger tail.
+`research.html` at the archive root (`pt monitor`; rewritten automatically after `pt index` on a research project and after every hub sync)
+is the entry point to all research projects: one card per project (status counts, focus paths, warnings) plus the last 14 days of node changes across trees.
 Archives without `tree/` behave exactly as before.
 
 ## How to use
@@ -252,8 +255,9 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              the single source of truth
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / migrate
     scripts/tree.py                    research tree: parse, check, print context, render tree.html (stdlib only)
+    scripts/monitor.py                 global research monitor: research projects + git history → research.html
     scripts/fleet.sh                   hub: sync / dispatch / runs (sourced by pt.sh)
     scripts/probe.sh                   runs on a node over ssh; needs only git
     reference/templates/*.md           the five files plus verifier / experiments / tree-root, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
