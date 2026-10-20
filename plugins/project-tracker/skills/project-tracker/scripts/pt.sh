@@ -254,6 +254,8 @@ cmd_brief() {
   section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)"
   section "charter.md"; cat "$DIR/charter.md" 2>/dev/null || echo "(缺失)"
   section "state.md";   cat "$DIR/state.md"   2>/dev/null || echo "(缺失)"
+  [ -f "$DIR/verifier.md" ] && { section "verifier.md"; cat "$DIR/verifier.md"; }
+  [ -f "$DIR/experiments.md" ] && { section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md"; }
 
   section "journal.md 最后 3 条"
   if [ -f "$DIR/journal.md" ]; then
@@ -276,6 +278,10 @@ cmd_brief() {
     if [ "$LINES" -gt 100 ] || [ "$BYTES" -gt "$STATE_MAX_BYTES" ]; then
       printf '\n[warn] state.md %s 行 / %s 字节，超过 100 行或 %s 字节的上限，checkpoint 时压缩进 archive/\n' "$LINES" "$BYTES" "$STATE_MAX_BYTES"
     fi
+  fi
+  if [ -f "$DIR/journal.md" ]; then
+    local LAST; LAST=$(awk '/^## /{n=0} {n+=length($0)+1} END{print n+0}' "$DIR/journal.md")
+    [ "$LAST" -gt 12000 ] && printf '\n[warn] journal 最后一条 %s 字节：条目写增量，长回报与证据放产物文件只记路径\n' "$LAST"
   fi
   if [ "$MODE" = compact ]; then
     printf '\n[project-tracker] 上下文刚被压缩，以上是档案里的现状。压缩摘要里有、档案里还没有的进展，先 checkpoint（追加一条新的 journal，session 号见上），再接着做手上的事；不用向用户复述简报。\n'
@@ -353,6 +359,19 @@ cmd_new() {
   echo "下一步：把用户的回答填进 charter.md（目标/完成标准/不做/约束/验证），再写 plan.md。"
 }
 
+cmd_research() {
+  local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh research <slug>"
+  local DIR="$ROOT/$SLUG"; [ -f "$DIR/charter.md" ] || die "项目不存在: $SLUG"
+  local f added=""
+  for f in verifier experiments; do
+    [ -f "$DIR/$f.md" ] && continue
+    sed -e "s|{{SLUG}}|$SLUG|g" -e "s|{{DATE}}|$TODAY|g" "$TPL/$f.md" > "$DIR/$f.md"; added="$added $f.md"
+  done
+  [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md 与 experiments.md"; return 0; }
+  commit_all "$DIR" "research @$THIS_HOST: 加$added" || die "git 提交失败: $DIR"
+  echo "[project-tracker] 已加$added → $DIR。先填 verifier.md（考官卡，用户确认后冻结）；实验一行一条记 experiments.md。"
+}
+
 cmd_index() {
   local SLUG="${1:-}" SUMMARY="${2:-}" STATUS="${3:-}"
   [ -n "$SLUG" ] && [ -n "$SUMMARY" ] || die "用法: pt.sh index <slug> \"<一句话>\" [进行中|暂停|已完成|已放弃]"
@@ -414,6 +433,7 @@ case "${1:-}" in
   brief)    [ -n "${2:-}" ] || die "用法: pt.sh brief <slug>"; cmd_brief "$2" ;;
   new)      shift; cmd_new "$@" ;;
   index)    shift; cmd_index "$@" ;;
+  research) shift; cmd_research "$@" ;;
   migrate)  cmd_migrate ;;
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"

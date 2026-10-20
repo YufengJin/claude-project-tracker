@@ -23,6 +23,8 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
     ├── state.md    # 现在在哪 + 别再试的路 + 快速启动。可重写，≤100 行（约 8000 字）；「一句话概括」首行进 INDEX
     ├── journal.md  # 只追加，一会话一条
     ├── decisions.md# 只追加的 ADR
+    ├── verifier.md # 研究项目：考官卡（pt research 加）。用户确认后冻结
+    ├── experiments.md # 研究项目：实验台账，一行一个判别实验，只追加
     └── archive/    # state 压缩掉的旧内容
 ```
 
@@ -30,7 +32,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 
 ## 三条不变量
 
-1. `journal.md` 与 `decisions.md` **只追加**。它们是唯一事实来源，其他文件都能从它们重建。
+1. `journal.md` 与 `decisions.md` **只追加**。事实源是它们加上 `experiments.md`（研究项目的实验结论）和产物文件（证据）；`state.md`、`plan.md` 与总结只是带出处的提炼，都能从事实源重建。
 2. `state.md` 与 `plan.md` 是**快照**，随时可覆盖；state 硬上限 100 行。
 3. **只写 git 记不下来的东西**：意图、假设、失败的尝试、判断依据、用户原话。"改了什么"看 commit。
 
@@ -45,6 +47,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt brief <slug>` | 按恢复顺序打印简报、设 ACTIVE，并把本会话绑到这个项目 |
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
 | `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX |
+| `pt research <slug>` | 研究项目：加考官卡 `verifier.md` 与实验台账 `experiments.md`（怎么用见 skill `research-loop`） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |
 
@@ -90,7 +93,7 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 写入顺序（不可重建的先写）：
 
-1. **追加 journal**。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。session 号 brief 已打印。
+1. **补 experiments.md**（研究项目）：本段做过的判别实验各一行或补读数与结论。然后**追加 journal**。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。session 号 brief 已打印。
 2. **重写 state**。journal 的 `Learned` 里失败的路**提升到 state 的"别再试"**，否则下个会话看不到。
 3. **更新 plan**（若变）。重大方向调整先在 journal 记为什么。
 4. **追加 decisions**（若做了架构级选择）。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
