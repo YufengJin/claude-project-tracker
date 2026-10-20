@@ -7,7 +7,7 @@
 #   pt.sh precompact                           PreCompact hook 用：让压缩摘要留下还没入档的进展
 #   pt.sh brief <slug>                         按恢复顺序输出简报，把 ACTIVE 设为该 slug，并把本会话绑到它
 #   pt.sh new <slug> "<名称>" [--host H] [workdir ...]   建档（git 仓 + 首次提交）；workdir 默认当前目录
-#   pt.sh index <slug> "<一句话>" [状态]       写一句话与状态、提交这次 checkpoint、重建 INDEX
+#   pt.sh index <slug> "<一句话>" [状态]       写一句话（进 state 与 INDEX，不是提交说明）与状态、提交这次 checkpoint、重建 INDEX
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
@@ -90,13 +90,30 @@ repo_init() {
   git -C "$1" config receive.denyCurrentBranch updateInstead
 }
 
-# commit_all <dir> <message>：有改动才提交
+# conflict_files <dir>：还没合好的文件，一行一个——合并中、文件里还留着冲突标记（<<<<<<< / >>>>>>>）的，
+# 加上任何还带冲突标记的 .md。在工作区里改好了（没有标记）的冲突文件不算，pt index 的 add -A 会收下它
+CONFLICT_MARK='^(<<<<<<<|>>>>>>>)( |$)'
+conflict_files() {
+  local f
+  { git -C "$1" ls-files -u | cut -f2 | sort -u | while IFS= read -r f; do
+      [ -f "$1/$f" ] && grep -qE "$CONFLICT_MARK" "$1/$f" && echo "$f"
+    done
+    git -C "$1" grep --untracked -lE "$CONFLICT_MARK" -- '*.md' 2>/dev/null; } | sort -u
+}
+
+# commit_all <dir> <message>：有改动才提交。有冲突不提交（add -A 会把冲突标记当内容收进去）
 commit_all() {
+  local u
   repo_init "$1" || return 1
+  u="$(conflict_files "$1")"
+  [ -z "$u" ] || die "$1 有没合完的冲突（文件里还有 <<<<<<< / >>>>>>> 标记），先合并再 checkpoint：$(echo $u)"
   g "$1" add -A || return 1
   g "$1" diff --cached --quiet && return 0
   g "$1" commit -q -m "$2"
 }
+
+# sed 替换串转义（分隔符用 |）
+sed_esc() { local s=$1; s=${s//\\/\\\\}; s=${s//&/\\&}; s=${s//|/\\|}; printf '%s' "$s"; }
 
 # 项目的 Host。旧档案没有这个字段：Workdir 在本机存在就算本机，否则为空（待定位）
 host_of() {
@@ -167,6 +184,8 @@ last_update() {
   echo "$u"
 }
 
+# Status 的状态值：「进行中 (探索期)」「进行中（…）」都算进行中
+status_of() { field "$1" Status | sed -E 's/[[:space:]（(].*//'; }
 status_rank() { case "$1" in 进行中) echo 1 ;; 暂停) echo 2 ;; 已完成) echo 3 ;; 已放弃) echo 4 ;; *) echo 5 ;; esac; }
 
 # INDEX.md 是生成视图：名称/状态/Host 取 charter，日期取最后一次提交，一句话取 state
@@ -184,8 +203,8 @@ render_index() {
       upd="$(last_update "$s")"
       sum="$(summary_of "$s")"; sum="${sum//|/／}"
       flag=""; [ -f "$ROOT/.fleet/forked/$s" ] && flag="⚠分叉 "
-      printf '%s\t%s\t| %s | %s | %s | %s | %s | %s%s |\n' "$(status_rank "$st")" "$upd" \
-        "$s" "$(sed -n '1s/^# *//p' "$d/charter.md")" "$st" "$(host_label "$s")" "$upd" "$flag" "$sum"
+      printf '%s\t%s\t| %s | %s | %s | %s | %s | %s%s |\n' "$(status_rank "$(status_of "$s")")" "$upd" \
+        "$s" "$(sed -n '1s/^# *//p' "$d/charter.md" | sed 's/|/／/g')" "$st" "$(host_label "$s")" "$upd" "$flag" "$sum"
     done | sort -t$'\t' -k1,1n -k2,2r | cut -f3-
   } > "$tmp" && mv "$tmp" "$ROOT/INDEX.md"
 }
@@ -213,7 +232,7 @@ cmd_where() {
   for d in "$ROOT"/*/; do
     s="$(basename "$d")"
     [ -f "$d/charter.md" ] || continue
-    [ "$(field "$s" Status)" = "进行中" ] || continue
+    [ "$(status_of "$s")" = "进行中" ] || continue
     [ "$(host_of "$s")" = "$THIS_HOST" ] || continue
     hits_cwd "$s" && echo "$s"
   done
@@ -249,7 +268,7 @@ cmd_brief() {
   if [ -f "$ROOT/.fleet/forked/$SLUG" ]; then
     a="$(cat "$ROOT/.fleet/forked/$SLUG")"
     echo "⚠ 与 $a 分叉：两边都有对方没有的提交。干活前先合并：git -C $DIR merge $a/main，"
-    echo "  冲突按语义合（journal 两边条目都保留、state 重写成合并后的现状），提交后 pt.sh sync $a。"
+    echo "  冲突按语义合（journal 两边条目都保留、state 重写成合并后的现状；tree.html 不用手合，pt index 会重新生成），提交后 pt.sh sync $a。"
   fi
   [ -f "$ROOT/.fleet/active/$SLUG" ] && echo "派活 $(cat "$ROOT/.fleet/active/$SLUG") 正在改这个项目：结束前不要 checkpoint（pt.sh runs $SLUG）。"
 
@@ -260,6 +279,9 @@ cmd_brief() {
   if [ -d "$DIR/tree" ]; then
     section "研究树（pt tree $SLUG；节点上下文 --ctx ID，已关分支 --all，全图 tree.html）"
     python3 "$HERE/tree.py" "$DIR" --no-html 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)"
+    if [ -f "$DIR/state.md" ] && awk '/^## (当前认识|别再试)/{f=1;next} /^## /{f=0} f&&NF&&!/^[-*]?[[:space:]]*无[[:space:]]*$/{x=1} END{exit !x}' "$DIR/state.md"; then
+      echo "[warn] state.md 还有「当前认识」或「别再试」：研究项目这两节应在根节点（tree/ 根的 ## 当前认识 / ## 教训），state 不复写"
+    fi
   elif [ -f "$DIR/experiments.md" ]; then
     section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md"
   fi
@@ -297,11 +319,11 @@ cmd_brief() {
   fi
 }
 
-# 考官卡：状态值（括号前那段）含「冻结」时只打印状态行与两节判据，其余读原文
+# 考官卡：状态值（括号前那段）以「冻结」「已冻结」开头时只打印状态行与两节判据，其余读原文；「未冻结」「待冻结」不算
 verifier_brief() {
   local st; st="$(grep -m1 'Status:' "$1" | sed 's/.*Status:[[:space:]]*//; s/[（(].*//')"
   case "$st" in
-    *冻结*) grep -m1 'Status:' "$1"
+    冻结*|已冻结*) grep -m1 'Status:' "$1"
             awk '/^## /{f=($0 ~ /^## *(指标|判定依据)/)} f' "$1"
             printf '\n(考官已冻结：其余节读原文 %s)\n' "$1" ;;
     *)      cat "$1" ;;
@@ -351,6 +373,8 @@ cmd_precompact() {
   fi
   [ -n "$slug" ] || exit 0
   echo "本会话在做 project-tracker 项目 $slug（档案 $ROOT/$slug）。摘要里单列一节「未入档的进展」，写上次 checkpoint（pt.sh index）之后的：结果和证据（命令、数字、产物路径）、走不通的路和原因、做出的决定和用户原话、还在后台跑的任务和它的完成标记、下一步。压缩后要据此补 journal。"
+  [ -d "$ROOT/$slug/tree" ] && echo "这个项目有研究树：摘要里另列改过 status/verdict 的节点、新建的节点（ID 与标题）、台账新增或回填的行（实验 id），压缩后据此补 tree/ 与 experiments.md。"
+  return 0
 }
 
 cmd_new() {
@@ -367,14 +391,16 @@ cmd_new() {
   local DIR="$ROOT/$SLUG"
   [ -e "$DIR" ] && die "已存在: $DIR（改用 pt.sh brief $SLUG）"
   local WORKDIR="${*:-$CWD}"
+  case "$NAME$WORKDIR$HOSTV" in *$'\n'*|*$'\r'*) die "名称、workdir、host 里不能有换行" ;; esac
 
   mkdir -p "$DIR/archive"
   touch "$DIR/archive/.keep"
-  local f
+  local f n w h
+  n="$(sed_esc "$NAME")"; w="$(sed_esc "$WORKDIR")"; h="$(sed_esc "$HOSTV")"
   for f in charter plan state journal decisions; do
-    sed -e "s|{{SLUG}}|$SLUG|g" -e "s|{{NAME}}|$NAME|g" -e "s|{{DATE}}|$TODAY|g" \
-        -e "s|{{WORKDIR}}|$WORKDIR|g" -e "s|{{HOST}}|$HOSTV|g" -e "s|{{THIS_HOST}}|$THIS_HOST|g" \
-      "$TPL/$f.md" > "$DIR/$f.md"
+    sed -e "s|{{SLUG}}|$SLUG|g" -e "s|{{NAME}}|$n|g" -e "s|{{DATE}}|$TODAY|g" \
+        -e "s|{{WORKDIR}}|$w|g" -e "s|{{HOST}}|$h|g" -e "s|{{THIS_HOST}}|$THIS_HOST|g" \
+      "$TPL/$f.md" > "$DIR/$f.md" || { rm -rf "$DIR"; die "从模板生成 $f.md 失败（名称或 workdir 里有 sed 处理不了的字符？）"; }
   done
   commit_all "$DIR" "new @$THIS_HOST: $NAME" || die "git 提交失败: $DIR"
   render_index
@@ -393,19 +419,24 @@ cmd_research() {
     [ -f "$DIR/$f.md" ] && continue
     sed -e "s|{{SLUG}}|$SLUG|g" -e "s|{{DATE}}|$TODAY|g" "$TPL/$f.md" > "$DIR/$f.md"; added="$added $f.md"
   done
-  if [ ! -d "$DIR/tree" ]; then
+  # 没有 tree/，或 tree/ 里一个节点文件都没有：补根节点 Q1
+  if ! ls "$DIR/tree" 2>/dev/null | grep -qE '^[QH][1-9][0-9]*\.md$'; then
     mkdir -p "$DIR/tree"
-    name="$(sed -n '1s/^# *//p' "$DIR/charter.md")"; name="${name//\\/\\\\}"; name="${name//&/\\&}"; name="${name//|/\\|}"
-    sed -e "s|{{NAME}}|${name:-$SLUG}|g" "$TPL/tree-root.md" > "$DIR/tree/Q1.md"; added="$added tree/Q1.md"
+    name="$(sed -n '1s/^# *//p' "$DIR/charter.md")"
+    sed -e "s|{{NAME}}|$(sed_esc "${name:-$SLUG}")|g" "$TPL/tree-root.md" > "$DIR/tree/Q1.md"; added="$added tree/Q1.md"
   fi
   [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md、experiments.md 与 tree/"; return 0; }
   commit_all "$DIR" "research @$THIS_HOST: 加$added" || die "git 提交失败: $DIR"
-  echo "[project-tracker] 已加$added → $DIR。先填 verifier.md（考官卡，用户确认后冻结）；实验一行一条记 experiments.md；问题与假设记在 tree/（格式见 tree/Q1.md 的注释，pt tree $SLUG 查看）。"
+  local st; st="$(grep -m1 'Status:' "$DIR/verifier.md" | sed 's/.*Status:[[:space:]]*//; s/[（(].*//')"
+  case "$st" in 冻结*|已冻结*) st="考官卡已冻结；" ;; *) st="先填 verifier.md（考官卡，用户确认后冻结）；" ;; esac
+  echo "[project-tracker] 已加$added → $DIR。${st}实验一行一条记 experiments.md；问题与假设记在 tree/（格式见 tree/Q1.md 的注释，pt tree $SLUG 查看）。"
 }
 
 cmd_index() {
   local SLUG="${1:-}" SUMMARY="${2:-}" STATUS="${3:-}"
-  [ -n "$SLUG" ] && [ -n "$SUMMARY" ] || die "用法: pt.sh index <slug> \"<一句话>\" [进行中|暂停|已完成|已放弃]"
+  [ -n "$SLUG" ] && [ -n "$SUMMARY" ] || die "用法: pt.sh index <slug> \"<一句话>\" [进行中|暂停|已完成|已放弃]（一句话进 state 与 INDEX，不是提交说明）"
+  case "$SUMMARY" in *$'\n'*|*$'\r'*) die "一句话不能有换行（它写进 state.md「一句话概括」的一行，也是 INDEX 的一格）" ;; esac
+  [ -n "${SUMMARY//[[:space:]]/}" ] || die "一句话不能是空白"
   [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
   if [ -n "$STATUS" ]; then
     case "$STATUS" in 进行中|暂停|已完成|已放弃) ;; *) die "状态只能是 进行中|暂停|已完成|已放弃: $STATUS" ;; esac
@@ -413,12 +444,17 @@ cmd_index() {
   if fleet_run_active "$SLUG"; then
     die "派活 $(cat "$ROOT/.fleet/active/$SLUG") 正在改 $SLUG；等它结束（pt.sh runs $SLUG）再 checkpoint，否则会分叉"
   fi
+  # 先查冲突再动文件，免得拒绝提交时 state 已经改了一半；tree.html 除外（下面会重新生成）
+  local u; u="$(conflict_files "$ROOT/$SLUG" 2>/dev/null | grep -vx tree.html)"
+  [ -z "$u" ] || die "$ROOT/$SLUG 有没合完的冲突（文件里还有 <<<<<<< / >>>>>>> 标记），先合并再 checkpoint：$(echo $u)"
   [ -n "$STATUS" ] && sed -i "s/^Status:.*/Status: $STATUS/" "$ROOT/$SLUG/charter.md"
   set_summary "$SLUG" "$SUMMARY" replace
   # 研究树：提交前重渲染 tree.html（派生物，随档案提交）；失败只告警
   if [ -d "$ROOT/$SLUG/tree" ]; then
     python3 "$HERE/tree.py" "$ROOT/$SLUG" --render 2>&1 | sed 's/^/[project-tracker] /' ; [ "${PIPESTATUS[0]}" -eq 0 ] \
       || echo "[warn] tree.html 没渲染成（照常提交）：pt.sh tree $SLUG 看原因"
+    # 合并冲突里的 tree.html 是派生物，刚重新渲染过，直接算合好了
+    [ -n "$(git -C "$ROOT/$SLUG" ls-files -u -- tree.html 2>/dev/null)" ] && git -C "$ROOT/$SLUG" add tree.html
   fi
   commit_all "$ROOT/$SLUG" "checkpoint @$THIS_HOST: $SUMMARY" || die "git 提交失败: $ROOT/$SLUG"
   render_index

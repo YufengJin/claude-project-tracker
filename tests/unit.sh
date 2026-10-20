@@ -223,11 +223,227 @@ check "冻结考官只打印状态行 + 两节"      'grep -q "Status: 已冻结
 rm -f "$H"
 out=$(bash "$PT" index rs "研究树就位")
 check "index 渲染 tree.html 并一起提交"  '[ -f "$H" ] && [ -z "$(git -C "$R" status --porcelain)" ] && git -C "$R" ls-files | grep -qx tree.html && grep -q "告警 [0-9]* 条" <<<"$out"'
-mkdir "$R/tree/H9.md"
+chmod 000 "$R/tree"   # tree/ 读不了：tree.py 整个失败
 out=$(bash "$PT" index rs "渲染坏了" 2>&1); rc=$?
+chmod 755 "$R/tree"
 check "渲染失败只告警，照常提交"         '[ $rc -eq 0 ] && grep -q "tree.html 没渲染成" <<<"$out" && git -C "$R" log -1 --format=%s | grep -q "渲染坏了"'
-rmdir "$R/tree/H9.md"
 check "没有研究树的项目 tree 报错、brief 照旧" '! bash "$PT" tree alpha 2>/dev/null && ! bash "$PT" brief alpha | grep -q "===== 研究树"'
+
+echo "# 研究树回归（坏输入、注入、冲突）"
+TP="$(dirname "$PT")/tree.py"
+mkdir -p "$T/rbw"
+bash "$PT" new rb "回归 B" "$T/rbw" >/dev/null; bash "$PT" research rb >/dev/null
+B="$T/root/rb"
+nd(){ printf '%b' "$2" > "$B/tree/$1"; }
+fmn(){ nd "$1.md" "---\ntitle: $2\nparent: $3\nstatus: $4\n$5---\n$6\n"; }
+tw(){ python3 "$TP" "$B" --no-html "$@" 2>&1; }
+gq(){ git -C "$B" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+# S1 class 属性注入
+fmn H1 '<img src=x onerror=alert(3)>' Q1 'x" onmouseover="alert(1)' 'verdict: y" onfocus="alert(2)" autofocus x="\n' '## 判别\n<b onmouseover=alert(4)>x</b>'
+python3 "$TP" "$B" --render >/dev/null
+check "S1 html 没有 on* 事件属性（status/verdict/标题注入都转义）" 'python3 - "$B/tree.html" <<PY
+import sys, html.parser
+bad = []
+class P(html.parser.HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        bad.extend(k for k, v in attrs if k.startswith("on") or k == "autofocus")
+P().feed(open(sys.argv[1]).read()); sys.exit(1 if bad else 0)
+PY'
+check "S1 未知 status/verdict 的 class 是 s-unknown / v-unknown" 'grep -q "class=\"n s-unknown v-unknown\"" "$B/tree.html"'
+check "S1 非法 status 计入「其他」"    'grep -q "data-st=\"other\" checked> 其他 1" "$B/tree.html" && grep -q "data-status=\"other\"" "$B/tree.html"'
+# S2 注释里的结论、未闭合注释
+fmn H1 "注释里的结论" Q1 closed 'verdict: refuted\n' '## 判别\n真判别\n<!--\n## 结论\n草稿：别信\n-->'
+fmn H2 "未闭合注释" Q1 closed 'verdict: refuted\n' '## 判别\nx\n## 结论\n<!-- 待写\n## 教训\n不该算'
+out=$(tw)
+check "S2 注释里的 ## 结论 不算节"       'grep -q "H1: closed 但结论为空" <<<"$out"'
+check "S2 未闭合 <!-- 去到文末并告警"    'grep -q "H2: 注释 <!-- 没闭合" <<<"$out" && grep -q "H2: closed 但结论为空" <<<"$out"'
+# S3 台账：注释与代码块里的行不算实验
+cat >> "$B/experiments.md" <<'EOF'
+| E1 | H1 | 真行 | 1 | 成功 | 支持 | p |
+<!--
+| E8 | H88 | 注释里的行 | - | - | - | - |
+-->
+
+```
+| id | node |
+|---|---|
+| E9 | H99 |
+```
+EOF
+out=$(tw)
+check "S3 注释、代码块里的表格行不进台账" 'grep -q "台账 1 行" <<<"$out" && ! grep -q "H88\|H99" <<<"$out"'
+# S4 --blind 隐去节点引用、### 结论 不进判别、无考官卡明说
+fmn H3 "盲测对象" Q1 active '' '## 判别\n候选 [[H1]] 排第一，[[H2]] 第二。\n### 结论\n泄露的结论'
+out=$(tw --ctx H3 --blind)
+check "S4 --blind 把 [[ID]] 换成 [[…]] 并在顶部告警" 'head -n1 <<<"$out" | grep -q "判别引用了 2 个节点" && grep -q "候选 \[\[…\]\] 排第一" <<<"$out" && ! grep -q "\[\[H1\]\]" <<<"$out"'
+check "S4 ### 结论 不混进判别"           '! grep -q "泄露的结论" <<<"$out" && grep -q "H3: 「### 结论」当成一节" <<<"$(tw)"'
+mv "$B/verifier.md" "$T/v.bak"
+check "S4 无 verifier.md 时明说无考官卡" 'tw --ctx H3 --blind | grep -q "无考官卡"'
+mv "$T/v.bak" "$B/verifier.md"
+rm -f "$B/tree/H"[123].md
+gq add -A >/dev/null; gq commit -qm base
+# S5 tree.html 冲突自动重渲染；其他冲突拒绝提交
+fmn H4 "主线标题" Q1 open '' ''
+fmn H5 "分支前" Q1 open '' ''
+python3 "$TP" "$B" --render >/dev/null; gq add -A; gq commit -qm m1
+gq checkout -qb side; fmn H5 "分支改的标题" Q1 open '' ''; python3 "$TP" "$B" --render >/dev/null; gq commit -qam side
+gq checkout -q main; fmn H4 "主线改的标题" Q1 open '' ''; python3 "$TP" "$B" --render >/dev/null; gq commit -qam main2
+gq merge -q side >/dev/null 2>&1
+check "S5 前提：tree.html 处于冲突"       '[ -n "$(git -C "$B" ls-files -u -- tree.html)" ]'
+out=$(bash "$PT" index rb "合并后 checkpoint" 2>&1); rc=$?
+check "S5 index 重渲染并收下冲突的 tree.html" '[ $rc -eq 0 ] && [ -z "$(git -C "$B" ls-files -u)" ] && [ "$(git -C "$B" rev-list --parents -1 HEAD | wc -w)" = 3 ] && grep -q "主线改的标题" "$B/tree.html" && grep -q "分支改的标题" "$B/tree.html"'
+gq checkout -qb side2; echo "分支加的一行" >> "$B/plan.md"; gq commit -qam s2
+gq checkout -q main; echo "主线加的一行" >> "$B/plan.md"; gq commit -qam m3
+gq merge -q side2 >/dev/null 2>&1
+n0=$(git -C "$B" rev-list --count HEAD)
+out=$(bash "$PT" index rb "不该提交" 2>&1); rc=$?
+check "S5 有没合完的冲突：index 拒绝并列出文件" '[ $rc -ne 0 ] && grep -q "没合完的冲突.*plan.md" <<<"$out" && [ -z "$(git -C "$B" status --porcelain state.md)" ] && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
+gq add plan.md
+out=$(bash "$PT" index rb "标记还在" 2>&1); rc=$?
+check "S5 冲突标记被 add 进去了也拒绝"    '[ $rc -ne 0 ] && grep -q "冲突.*plan.md" <<<"$out" && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
+gq reset -q; git -C "$B" show HEAD:plan.md > "$B/plan.md"; gq checkout -qb side3; echo "分支三" >> "$B/plan.md"; gq commit -qam s3
+gq checkout -q main; echo "主线三" >> "$B/plan.md"; gq commit -qam m4; gq merge -q side3 >/dev/null 2>&1
+git -C "$B" show HEAD:plan.md > "$B/plan.md"   # 在工作区里改好（不 git add）
+out=$(bash "$PT" index rb "工作区里合好了" 2>&1); rc=$?
+check "S5 工作区里已改好的冲突（无标记）照常提交" '[ $rc -eq 0 ] && [ -z "$(git -C "$B" ls-files -u)" ] && [ "$(git -C "$B" rev-list --parents -1 HEAD | wc -w)" = 3 ]'
+check "S5 tree.py 对含冲突标记的节点告警" 'printf -- "---\ntitle: t\nparent: Q1\nstatus: open\n---\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> side\n" > "$B/tree/H6.md"; tw | grep -q "H6: 含合并冲突标记"'
+rm -f "$B/tree/H6.md"; git -C "$B" show HEAD:plan.md > "$B/plan.md"; echo "合好的一行" >> "$B/plan.md"; gq add -A; gq commit -qm resolved
+check "S5 brief 分叉提示写 tree.html 不用手合" 'grep -q "tree.html 不用手合，pt index 会重新生成" "$(dirname "$PT")/pt.sh"'
+# S6 pt new 名称含 sed 特殊字符
+out=$(bash "$PT" new sedname 'A|B & \1 C/D' "$T/other/x" 2>&1); rc=$?
+check "S6 名称含 | & \\1 照原样写进 charter" '[ $rc -eq 0 ] && [ "$(head -n1 "$T/root/sedname/charter.md")" = "# A|B & \1 C/D" ] && grep -qF "| sedname | A／B & \1 C/D |" "$T/root/INDEX.md"'
+out=$(bash "$PT" new sedbad "$(printf 'a\nb')" "$T/other/x" 2>&1); rc=$?
+check "S6 sed 处理不了的名称：报错且不留空档案" '[ $rc -ne 0 ] && [ ! -e "$T/root/sedbad" ]'
+# M1 Status 带括号注
+sed -i "s/^Status:.*/Status: 进行中 (探索期)/" "$B/charter.md"
+check "M1 Status「进行中 (探索期)」where 照样命中" '(cd "$T/rbw" && bash "$PT" where) | grep -qx rb'
+check "M1 INDEX 按进行中排序（排在已放弃前）" 'bash "$PT" list --no-sync >/dev/null; [ "$(grep -n "^| rb |" "$T/root/INDEX.md" | cut -d: -f1)" -lt "$(grep -n "^| annot |" "$T/root/INDEX.md" | cut -d: -f1)" ]'
+check "M1 precompact 命中带注的进行中项目" '(cd "$T/rbw" && bash "$PT" precompact </dev/null) | grep -q "项目 rb"'
+# M2 考官卡「未冻结」不算冻结
+sed -i "s/^Updated: .*/Updated: $D   Status: 未冻结（等用户）/" "$B/verifier.md"
+check "M2 未冻结的考官卡全文打印"        'bash "$PT" brief rb | grep -q "^## 数据与暴露史"'
+# M3 渲染用唯一临时文件、不留残留
+for k in 1 2 3 4 5 6; do python3 "$TP" "$B" --render >/dev/null 2>"$T/race.$k" & done; wait
+check "M3 并发渲染都成功、无临时文件残留" '! grep -q . "$T"/race.* && [ -z "$(ls -A "$B" | grep tmp)" ] && [ -r "$B/tree.html" ] && [ "$(stat -c %a "$B/tree.html")" != 600 ]'
+# M4 坏文件不让整棵树崩
+printf -- '---\ntitle: \xff\xfe 坏编码\n---\n' > "$B/tree/H7.md"
+mkdir "$B/tree/H8.md"; ln -s "$T/nowhere" "$B/tree/H9.md"
+printf '\xef\xbb\xbf---\ntitle: BOM 节点\nparent: Q1\nstatus: open\n---\n' > "$B/tree/H10.md"
+out=$(tw); rc=$?
+check "M4 非 UTF-8、目录、坏软链只告警"   '[ $rc -eq 0 ] && ! grep -q Traceback <<<"$out" && grep -q "tree/H7.md: 不是 UTF-8" <<<"$out" && grep -q "tree/H8.md: 忽略的文件（是目录）" <<<"$out" && grep -q "tree/H9.md: 忽略的文件（坏软链）" <<<"$out"'
+check "M4 BOM 节点照常读 frontmatter"     'grep -q "^- H10 \[open\] BOM 节点" <<<"$out" && ! grep -q "H10: 没有 frontmatter" <<<"$out"'
+rm -rf "$B/tree/H7.md" "$B/tree/H8.md" "$B/tree/H9.md" "$B/tree/H10.md"
+# M5 一句话不能有换行
+cp "$B/state.md" "$T/state.bak"
+out=$(bash "$PT" index rb "$(printf '第一行\n## 注入的节')" 2>&1); rc=$?
+check "M5 一句话含换行：拒绝、state 不变" '[ $rc -ne 0 ] && cmp -s "$B/state.md" "$T/state.bak"'
+check "M5 一句话纯空白：拒绝"            '! bash "$PT" index rb "   " 2>/dev/null'
+# M6 / M7 / M8
+fmn Q2 "搁置的问题" Q1 parked '' ''
+fmn H11 "搁置问题下的假设" Q2 open '' ''
+fmn Q3 "已关的问题" Q1 closed 'verdict: supported\n' '## 结论\nTODO'
+fmn H12 "已关问题下还在做" Q3 active '' '## 判别\n预测。'
+fmn Q4 "子假设全关" Q1 active '' '## 判别\n为什么问。'
+fmn H13 "关了的子假设" Q4 closed 'verdict: refuted\n' '## 结论\n不支持（E1）。'
+out=$(tw)
+check "M6 前沿行写出父节点的搁置状态"    'grep -q "^- H11 \[open\] 搁置问题下的假设（Q2 下，父 Q2 parked）" <<<"$out" && grep -q "^- H12 已关问题下还在做（父 Q3 closed）" <<<"$out"'
+check "M6 父已 closed 的 active 节点告警" 'grep -q "H12: active，但父 Q3 已 closed" <<<"$out"'
+check "M7 子假设全关的 active 问题有提示"  'sed -n "/^- Q4 /,/^- /p" <<<"$out" | grep -q "子假设全关：决定答完"'
+check "M8 结论写 TODO 算空"              'grep -q "Q3: closed 但结论为空" <<<"$out"'
+rm -f "$B/tree/"{Q2,H11,Q3,H12,Q4,H13}.md
+# M9 台账解析
+cat > "$B/experiments.md" <<'EOF'
+# 实验台账
+## 一
+| ID | **Node(s)** | 读数 |
+|-|:-:|-|
+| E1 | H4 | 1 |
+| E2 | H5 | 2 | 多一列 |
+
+| E3 | H4 | 表外 |
+
+## 二
+id | 节点 ID | 读数
+---|---|---
+E4 | `H4`（主）/ **H5** 和 H4 | 3
+E5 | N/A | -
+EOF
+out=$(tw)
+check "M9 |-| 分隔行、无前导竖线的表、表头 **Node(s)** / 节点 ID" 'grep -q "台账 4 行，挂到节点的 3 行" <<<"$out"'
+check "M9 列数不符告警带行号"            'grep -q "experiments.md 第 6 行：4 列，表头 3 列" <<<"$out"'
+check "M9 表后的竖线行告警「表外的行」"   'grep -q "experiments.md 第 8 行：表外的行" <<<"$out"'
+check "轻 node 单元格规范化（反引号、括号注、/、和、N/A、去重）" 'tw --ctx H5 | grep -qF "E4 | \`H4\`（主）/ **H5** 和 H4 | 3" && ! grep -q "node N\b\|node A\b\|node 和" <<<"$out"'
+# M10 frontmatter
+nd H14.md '---\ntitle: 没闭合\nparent: Q1\nstatus: open\n## 判别\nx\n'
+nd H15.md '---\ntitle: 块列表\nparent:\n  - Q1\nstatus: open\nsttaus: open\nstatus: parked\nverdict： x\n---\n'
+out=$(tw)
+check "M10 未闭合 frontmatter 在 ## 前截断并告警" 'grep -q "H14: frontmatter 没闭合" <<<"$out" && grep -q "^- H14 \[open\] 没闭合（Q1 下）" <<<"$out"'
+check "M10 块列表、全角冒号、未知键、重复键都告警" 'grep -q "H15: frontmatter 的 parent 写成了块列表" <<<"$out" && grep -q "H15: frontmatter 用了全角冒号" <<<"$out" && grep -q "H15: frontmatter 未知键 sttaus" <<<"$out" && grep -q "H15: frontmatter 重复的键 status" <<<"$out"'
+rm -f "$B/tree/H14.md" "$B/tree/H15.md"
+# M11 两个 ## 结论
+fmn H16 "两次结论" Q1 closed 'verdict: refuted\n' '## 结论\n旧结论：支持。\n## 结论\n新结论：其实否了。'
+out=$(tw --all)
+check "M11 同名节告警、取最后一个"       'grep -q "H16: 有 2 个「## 结论」" <<<"$out" && grep -q "^- H16 \[refuted\] 两次结论 —— 新结论：其实否了。" <<<"$out"'
+rm -f "$B/tree/H16.md"
+# M12 不合规的文件名不当节点
+for f in h33.md H027.md README.md H27-old.md "H27 .md"; do fmn "${f%.md}" "坏名 $f" Q1 open '' ''; done
+out=$(tw)
+check "M12 不合规文件名一律忽略并告警"    '[ "$(grep -c "忽略的文件（文件名不是" <<<"$out")" = 5 ] && ! grep -q "坏名" <<<"$out"'
+rm -f "$B/tree/"{h33,H027,README,H27-old}.md "$B/tree/H27 .md"
+# M13 / M14 / M15 html
+fmn H17 "html 标记" Q1 open '' '## 判别\n**粗 [链](http://a/**b) 与 `c**d`**；私有区 \xee\x80\x800\xee\x80\x81 字符\n[x](#[[Q1]])'
+python3 "$TP" "$B" --render >/dev/null; rc=$?
+check "M13 粗体跨不进链接 URL、私有区字符不崩" '[ $rc -eq 0 ] && python3 - "$B/tree.html" <<PY
+import sys, re
+s = open(sys.argv[1]).read(); a = s[s.index("id=\"n-H17\""):]; a = a[:a.index("</article>")]
+ok = a.count("<strong>") == a.count("</strong>") and "href=\"http://a/**b\"" in a and "<code>c**d</code>" in a and "href=\"#<" not in a
+sys.exit(0 if ok else 1)
+PY'
+check "M14 正文与表格长串可断行"          'grep -q "article,td{overflow-wrap:anywhere}" "$B/tree.html"'
+check "M15 搜索只看标题与正文、ID 精确命中" 'grep -q "<div class=body>" "$B/tree.html" && grep -q "querySelector(.\.body.)" "$B/tree.html" && grep -q "ex?id===ex" "$B/tree.html"'
+check "轻 html：hash 解码容错、没有节点提示、nav title、顶栏告警数" 'grep -q "try{id=decodeURIComponent(id);}catch" "$B/tree.html" && grep -q "id=miss" "$B/tree.html" && grep -q "title=\"H17 html 标记\"" "$B/tree.html"'
+rm -f "$B/tree/H17.md"
+# M16 根约束引用另一个根
+nd Q1.md '---\ntitle: 根一\nparent:\nstatus: active\n---\n## 判别\n为什么问。\n## 约束\n- 协议同 [[Q5]]\n'
+fmn Q5 "根五" '' parked '' '## 约束\n- 根五的禁读切分'
+fmn H18 "根一下的假设" Q1 active '' '## 判别\n预测。'
+check "M16 --ctx 带上被引用根的约束"      'tw --ctx H18 | grep -q "根五的禁读切分"'
+check "M16 --blind 也带"                 'tw --ctx H18 --blind | grep -q "根五的禁读切分"'
+# M17 abandoned
+fmn H19 "预算停了" Q1 closed 'verdict: abandoned\n' '## 结论\n用户决定停（预算用完，2026-10-20）。'
+check "M17 verdict abandoned 合法"       '! tw | grep -q "H19:"'
+# 轻：parent/by 规范化与告警
+fmn H20 "双括号父" '[[Q1]]' open '' ''
+fmn H21 "两个父" 'Q1, Q5' open '' ''
+fmn H22 "自指 by" Q1 closed 'verdict: superseded\nby: H22\n' '## 结论\n被取代。'
+fmn H23 "多余的 by" Q1 closed 'verdict: refuted\nby: [[H19]]\n' '## 结论\n否。'
+fmn H24 "空判别在做" Q1 active '' '## 判别\n'
+out=$(tw)
+check "轻 parent [[Q1]] 去括号"           '! grep -q "H20:" <<<"$out" && grep -q "^- H20 \[open\] 双括号父（Q1 下）" <<<"$out"'
+check "轻 parent 多个值告警"              'grep -q "H21: parent 只能一个" <<<"$out"'
+check "轻 by 指向自己、非 superseded 写 by 告警" 'grep -q "H22: by 指向自己" <<<"$out" && grep -q "H23: 写了 by 但 verdict 不是 superseded" <<<"$out" && ! grep -q "H23: by" <<<"$out"'
+check "轻 active 假设判别为空告警"        'grep -q "H24: 假设 active 但判别为空" <<<"$out"'
+rm -f "$B/tree/"H2[0-4].md "$B/tree/H19.md" "$B/tree/H18.md" "$B/tree/Q5.md"
+# 轻：深链与长前沿
+rm -f "$B/tree/H4.md" "$B/tree/H5.md"
+python3 - "$B/tree" <<'PY'
+import sys, os
+d = sys.argv[1]
+for k in range(100, 2100):
+    open(os.path.join(d, f"H{k}.md"), "w").write(f"---\ntitle: 链 {k}\nparent: {'Q1' if k == 100 else f'H{k-1}'}\nstatus: open\n---\n")
+PY
+out=$(timeout 60 python3 "$TP" "$B" 2>&1); rc=$?
+check "轻 2000 层深链不崩、open 超 50 条截断" '[ $rc -eq 0 ] && grep -q "另有 1950 个，见 pt tree rb --all" <<<"$out" && [ "$(timeout 60 python3 "$TP" "$B" --all --no-html | grep -c "^- H[0-9]* \[open\]")" = 2000 ]'
+rm -f "$B/tree/"H[0-9][0-9][0-9]*.md
+# M18：brief / precompact / index 用法；pt research 补 Q1、冻结后不再催
+printf '\n## 当前认识\n- 一条写错地方的认识\n' >> "$B/state.md"
+check "M18 brief 提示 state 里的当前认识应在根节点" 'bash "$PT" brief rb | grep -q "研究项目这两节应在根节点"'
+check "M18 precompact 有研究树时要列节点与台账改动" '(cd "$T/rbw" && bash "$PT" precompact </dev/null) | grep -q "改过 status/verdict 的节点"'
+check "M18 index 用法写明一句话不是提交说明" 'bash "$PT" index 2>&1 | grep -q "不是提交说明"'
+sed -i "s/^Updated: .*/Updated: $D   Status: 已冻结（用户确认）/" "$B/verifier.md"
+rm -f "$B/tree/"*.md
+out=$(bash "$PT" research rb)
+check "轻 research：tree/ 没有节点时补 Q1，冻结后不催填考官卡" '[ -f "$B/tree/Q1.md" ] && grep -q "考官卡已冻结" <<<"$out" && ! grep -q "先填 verifier.md" <<<"$out"'
 
 echo "# migrate（0.3 档案）"
 export PROJECT_TRACKER_ROOT="$T/old"
