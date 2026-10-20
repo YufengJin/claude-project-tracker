@@ -3,7 +3,7 @@
 set -u
 S=$(cd "$(dirname "$0")" && pwd)
 PT="$S/../plugins/project-tracker/skills/project-tracker/scripts/pt.sh"
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=${KEEP_T:-$(mktemp -d)}; [ -n "${KEEP_T:-}" ] || trap 'rm -rf "$T"' EXIT
 export PROJECT_TRACKER_ROOT="$T/root" PT_HOSTNAME=host-me
 mkdir -p "$T/repoA/sub" "$T/repoB" "$T/other"
 unset CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID
@@ -134,6 +134,99 @@ out=$(bash "$PT" list)
 check "list 含 INDEX、主机与 Workdir"  'grep -q "^| alpha |" <<<"$out" && grep -q "alpha.*@本机.*Workdir: $T/repoA" <<<"$out" && grep -q "gamma.*@host-far" <<<"$out"'
 check "list 不含项目正文"              '! grep -q "完成标准\|Goal:" <<<"$out"'
 check "非中心机 sync 拒绝"             '! bash "$PT" sync 2>/dev/null'
+
+echo "# research 与研究树"
+bash "$PT" new rs "研究 R" "$T/other/rs" >/dev/null
+out=$(bash "$PT" research rs)
+R="$T/root/rs"
+check "research 建 verifier、experiments、tree/Q1.md" '[ -f "$R/verifier.md" ] && [ -f "$R/experiments.md" ] && [ -f "$R/tree/Q1.md" ] && grep -q "^title: 研究 R$" "$R/tree/Q1.md"'
+check "research 提交且干净"            '[ -z "$(git -C "$R" status --porcelain)" ]'
+check "台账模板有 node 列"             'grep -q "^| id | node |" "$R/experiments.md"'
+check "research 幂等"                  'bash "$PT" research rs | grep -q "已有"'
+check "模板根节点无告警"                'bash "$PT" tree rs | sed -n "/^## 告警/,\$p" | grep -q "^(无)"'
+cat > "$R/tree/Q1.md" <<'EOF'
+---
+title: 主问题 Q1
+parent:          # 根
+status: active
+---
+## 判别
+为什么问：示例。
+
+第二段不进祖先链。
+## 当前认识
+- 认识甲 <script>alert(1)</script>，见 [[H1]] 与 `code|x`
+## 约束
+- 禁读锁箱切分
+## 教训
+- 教训乙（适用：示例；出处 E1）
+EOF
+mk(){ printf -- '---\ntitle: %s\nparent: %s\nstatus: %s\n%b---\n%b\n' "$2" "$3" "$4" "$5" "$6" > "$R/tree/$1.md"; }
+mk H1 "假设一 已否" Q1 closed 'verdict: refuted\n' '## 判别\n预测 A。\n## 结论\n不支持：读数见 E1，改走 [[H2]]。后半句。'
+mk H2 "假设二 在做" Q1 active '' '## 判别\n预测 B；错的话 C。\n## 结论\n'
+mk H3 "假设三 关了没写" Q1 closed '' '## 判别\n空。\n## 结论\n<!-- 待写 -->'
+mk H4 "假设四 父悬空" Q9 open '' ''
+mk H5 "假设五 被取代" Q1 closed 'verdict: superseded\nby: H99\n' '## 结论\n被取代。'
+mk H6 "环甲" H7 parked '' ''
+mk H7 "环乙" H6 parked '' ''
+mk Q2 "旧根" "" closed 'verdict: supported\n' '## 结论\n答完了。\n## 教训\n- 旧根教训丙'
+mk Q3 "子问题" Q1 open '' ''
+cat >> "$R/experiments.md" <<'EOF'
+| E1 | H1, H2 | 对照 a \| b | 0.5 | 成功 | 不支持 | p/x |
+| E2 | H42 | 悬空 | - | 未跑 | - | - |
+| E3 |  | 未挂接 | - | 未跑 | - | - |
+
+## 旧表（没有 node 列）
+| ID | 问题 | 结论 |
+|---|---|---|
+| R0 | 旧问题 \| 带竖线 | 支持 |
+EOF
+out=$(bash "$PT" tree rs)
+check "tree 默认：根的认识/约束/教训"   'grep -q "认识甲" <<<"$out" && grep -q "禁读锁箱切分" <<<"$out" && grep -q "旧根教训丙" <<<"$out"'
+check "tree 默认：active 带祖先链与台账" 'grep -q "^- H2 假设二 在做" <<<"$out" && grep -q "链: Q1 主问题 Q1" <<<"$out" && grep -q "台账: E1" <<<"$out"'
+check "tree 默认：open/parked 标题"     'grep -q "^- Q3 \[open\] 子问题" <<<"$out" && grep -q "^- H6 \[parked\]" <<<"$out"'
+check "tree 默认不列已关分支"           '! grep -q "假设一 已否" <<<"$out" && grep -q "已关 4 个" <<<"$out"'
+check "台账计数（多表、转义竖线）"       'grep -q "台账 4 行，挂到节点的 2 行" <<<"$out"'
+check "告警：悬空 parent / by / node"   'grep -q "H4: parent Q9 不存在" <<<"$out" && grep -q "H5: by H99 不存在" <<<"$out" && grep -q "台账 E2.*node H42 不存在" <<<"$out"'
+check "告警：closed 无 verdict / 结论"  'grep -q "H3: closed 但没有 verdict" <<<"$out" && grep -q "H3: closed 但结论为空" <<<"$out" && ! grep -q "H1: closed" <<<"$out"'
+check "告警：成环"                     'grep -q "成环: H[67] → H[67] → H[67]" <<<"$out"'
+out=$(bash "$PT" tree rs --all)
+check "--all 列已关分支与结论首句"       'grep -q "^- H1 \[refuted\] 假设一 已否 —— 不支持：读数见 E1，改走 \[\[H2\]\]。$" <<<"$out" && grep -q "^- H5 \[superseded → H99\]" <<<"$out"'
+out=$(bash "$PT" tree rs --ctx H2)
+check "--ctx：根约束/认识/教训 + 祖先首段" 'grep -q "根 Q1 · 约束" <<<"$out" && grep -q "认识甲" <<<"$out" && grep -q "判别: 为什么问：示例。" <<<"$out" && ! grep -q "第二段不进祖先链" <<<"$out"'
+check "--ctx：兄弟一行 + 本节点全文"     'grep -q "^- H1 \[closed/refuted\] 假设一 已否" <<<"$out" && grep -q "^预测 B；错的话 C。" <<<"$out"'
+check "--ctx：台账行原样（多节点挂接）"  'grep -qF "| E1 | H1, H2 | 对照 a \| b |" <<<"$out" && grep -q "^| id | node |" <<<"$out" && ! grep -q "E3" <<<"$out"'
+check "--ctx 父节点带子节点的台账行"     'bash "$PT" tree rs --ctx Q1 | grep -qF "| E1 | H1, H2 |"'
+out=$(bash "$PT" tree rs --ctx H2 --blind)
+check "--blind：判别 + 约束 + 考官两节" 'grep -q "预测 B" <<<"$out" && grep -q "禁读锁箱切分" <<<"$out" && grep -q "^### 指标与聚合定义" <<<"$out" && grep -q "^### 判定依据" <<<"$out"'
+check "--blind 不含认识、兄弟、教训"     '! grep -q "认识甲\|假设一\|教训乙\|数据与暴露史" <<<"$out"'
+check "--ctx 不存在的节点报错"          '! bash "$PT" tree rs --ctx H404 2>/dev/null'
+check "--next Q / H"                   '[ "$(bash "$PT" tree rs --next Q)" = Q4 ] && [ "$(bash "$PT" tree rs --next H)" = H8 ]'
+H="$R/tree.html"
+check "tree.html 生成"                 '[ -f "$H" ] && grep -q "<article id=\"n-H2\"" "$H"'
+check "html 转义正文"                  'grep -qF "&lt;script&gt;alert(1)&lt;/script&gt;" "$H" && ! grep -qF "<script>alert(1)" "$H"'
+check "html [[ID]] 变成跳转、行内代码"   'grep -qF "<a class=\"ref\" href=\"#H1\">H1</a>" "$H" && grep -qF "<code>code|x</code>" "$H"'
+check "html 挂接台账行（转义竖线还原成单元格）" 'grep -qF "<td>对照 a | b</td>" "$H"'
+check "html 无外部资源"                 '! grep -qiE "https?://|src=|<link|@import|url\(" "$H"'
+check "html 多根都在左侧树"             'python3 - "$H" <<PY
+import re,sys; s=open(sys.argv[1]).read(); nav=s[s.index("<nav>"):s.index("</nav>")]
+top=re.findall(r"<nav><ul>(.*)</ul></nav>",s,re.S)[0]
+sys.exit(0 if all(f"data-id=\"{i}\"" in nav for i in ["Q1","Q2","H4","H6","H7"]) else 1)
+PY'
+out=$(bash "$PT" brief rs)
+check "brief 用研究树替代台账末行"       'grep -q "===== 研究树" <<<"$out" && grep -q "^- H2 假设二 在做" <<<"$out" && ! grep -q "experiments.md 末 15 行" <<<"$out"'
+check "未冻结的考官卡全文打印"           'grep -q "^## 数据与暴露史" <<<"$out"'
+sed -i "s/^Updated: .*/Updated: $D   Status: 已冻结（用户确认；改考官走 ADR）/" "$R/verifier.md"
+out=$(bash "$PT" brief rs)
+check "冻结考官只打印状态行 + 两节"      'grep -q "Status: 已冻结" <<<"$out" && grep -q "^## 指标与聚合定义" <<<"$out" && grep -q "^## 判定依据" <<<"$out" && ! grep -q "^## 数据与暴露史" <<<"$out" && grep -q "其余节读原文" <<<"$out"'
+rm -f "$H"
+out=$(bash "$PT" index rs "研究树就位")
+check "index 渲染 tree.html 并一起提交"  '[ -f "$H" ] && [ -z "$(git -C "$R" status --porcelain)" ] && git -C "$R" ls-files | grep -qx tree.html && grep -q "告警 [0-9]* 条" <<<"$out"'
+mkdir "$R/tree/H9.md"
+out=$(bash "$PT" index rs "渲染坏了" 2>&1); rc=$?
+check "渲染失败只告警，照常提交"         '[ $rc -eq 0 ] && grep -q "tree.html 没渲染成" <<<"$out" && git -C "$R" log -1 --format=%s | grep -q "渲染坏了"'
+rmdir "$R/tree/H9.md"
+check "没有研究树的项目 tree 报错、brief 照旧" '! bash "$PT" tree alpha 2>/dev/null && ! bash "$PT" brief alpha | grep -q "===== 研究树"'
 
 echo "# migrate（0.3 档案）"
 export PROJECT_TRACKER_ROOT="$T/old"

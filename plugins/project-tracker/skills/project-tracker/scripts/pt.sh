@@ -8,6 +8,8 @@
 #   pt.sh brief <slug>                         按恢复顺序输出简报，把 ACTIVE 设为该 slug，并把本会话绑到它
 #   pt.sh new <slug> "<名称>" [--host H] [workdir ...]   建档（git 仓 + 首次提交）；workdir 默认当前目录
 #   pt.sh index <slug> "<一句话>" [状态]       写一句话与状态、提交这次 checkpoint、重建 INDEX
+#   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
+#   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
@@ -254,8 +256,13 @@ cmd_brief() {
   section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)"
   section "charter.md"; cat "$DIR/charter.md" 2>/dev/null || echo "(缺失)"
   section "state.md";   cat "$DIR/state.md"   2>/dev/null || echo "(缺失)"
-  [ -f "$DIR/verifier.md" ] && { section "verifier.md"; cat "$DIR/verifier.md"; }
-  [ -f "$DIR/experiments.md" ] && { section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md"; }
+  [ -f "$DIR/verifier.md" ] && { section "verifier.md"; verifier_brief "$DIR/verifier.md"; }
+  if [ -d "$DIR/tree" ]; then
+    section "研究树（pt tree $SLUG；节点上下文 --ctx ID，已关分支 --all，全图 tree.html）"
+    python3 "$HERE/tree.py" "$DIR" --no-html 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)"
+  elif [ -f "$DIR/experiments.md" ]; then
+    section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md"
+  fi
 
   section "journal.md 最后 3 条"
   if [ -f "$DIR/journal.md" ]; then
@@ -288,6 +295,25 @@ cmd_brief() {
   else
     printf '\n[project-tracker] 读完给用户 ≤5 行汇报：在哪 / 上次做了什么 / 下一步 / 卡在哪 / 待拍板项。\n'
   fi
+}
+
+# 考官卡：状态值（括号前那段）含「冻结」时只打印状态行与两节判据，其余读原文
+verifier_brief() {
+  local st; st="$(grep -m1 'Status:' "$1" | sed 's/.*Status:[[:space:]]*//; s/[（(].*//')"
+  case "$st" in
+    *冻结*) grep -m1 'Status:' "$1"
+            awk '/^## /{f=($0 ~ /^## *(指标|判定依据)/)} f' "$1"
+            printf '\n(考官已冻结：其余节读原文 %s)\n' "$1" ;;
+    *)      cat "$1" ;;
+  esac
+}
+
+cmd_tree() {
+  local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]"
+  [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
+  shift
+  command -v python3 >/dev/null || die "pt tree 要 python3"
+  python3 "$HERE/tree.py" "$ROOT/$SLUG" "$@"
 }
 
 cmd_auto() {
@@ -362,14 +388,19 @@ cmd_new() {
 cmd_research() {
   local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh research <slug>"
   local DIR="$ROOT/$SLUG"; [ -f "$DIR/charter.md" ] || die "项目不存在: $SLUG"
-  local f added=""
+  local f added="" name
   for f in verifier experiments; do
     [ -f "$DIR/$f.md" ] && continue
     sed -e "s|{{SLUG}}|$SLUG|g" -e "s|{{DATE}}|$TODAY|g" "$TPL/$f.md" > "$DIR/$f.md"; added="$added $f.md"
   done
-  [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md 与 experiments.md"; return 0; }
+  if [ ! -d "$DIR/tree" ]; then
+    mkdir -p "$DIR/tree"
+    name="$(sed -n '1s/^# *//p' "$DIR/charter.md")"; name="${name//\\/\\\\}"; name="${name//&/\\&}"; name="${name//|/\\|}"
+    sed -e "s|{{NAME}}|${name:-$SLUG}|g" "$TPL/tree-root.md" > "$DIR/tree/Q1.md"; added="$added tree/Q1.md"
+  fi
+  [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md、experiments.md 与 tree/"; return 0; }
   commit_all "$DIR" "research @$THIS_HOST: 加$added" || die "git 提交失败: $DIR"
-  echo "[project-tracker] 已加$added → $DIR。先填 verifier.md（考官卡，用户确认后冻结）；实验一行一条记 experiments.md。"
+  echo "[project-tracker] 已加$added → $DIR。先填 verifier.md（考官卡，用户确认后冻结）；实验一行一条记 experiments.md；问题与假设记在 tree/（格式见 tree/Q1.md 的注释，pt tree $SLUG 查看）。"
 }
 
 cmd_index() {
@@ -384,6 +415,11 @@ cmd_index() {
   fi
   [ -n "$STATUS" ] && sed -i "s/^Status:.*/Status: $STATUS/" "$ROOT/$SLUG/charter.md"
   set_summary "$SLUG" "$SUMMARY" replace
+  # 研究树：提交前重渲染 tree.html（派生物，随档案提交）；失败只告警
+  if [ -d "$ROOT/$SLUG/tree" ]; then
+    python3 "$HERE/tree.py" "$ROOT/$SLUG" --render 2>&1 | sed 's/^/[project-tracker] /' ; [ "${PIPESTATUS[0]}" -eq 0 ] \
+      || echo "[warn] tree.html 没渲染成（照常提交）：pt.sh tree $SLUG 看原因"
+  fi
   commit_all "$ROOT/$SLUG" "checkpoint @$THIS_HOST: $SUMMARY" || die "git 提交失败: $ROOT/$SLUG"
   render_index
   echo "[project-tracker] 已提交: $SLUG | $(field "$SLUG" Status) | $TODAY | $SUMMARY"
@@ -434,9 +470,10 @@ case "${1:-}" in
   new)      shift; cmd_new "$@" ;;
   index)    shift; cmd_index "$@" ;;
   research) shift; cmd_research "$@" ;;
+  tree)     shift; cmd_tree "$@" ;;
   migrate)  cmd_migrate ;;
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,16p' "$0"; exit 1 ;;
+  *)        sed -n '2,18p' "$0"; exit 1 ;;
 esac

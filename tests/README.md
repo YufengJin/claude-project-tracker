@@ -6,6 +6,8 @@
 这样全局根就是夹具，hook 和 pt.sh 都读它。
 
 `unit.sh` 不调模型，直接测 pt.sh 的每个子命令和隔离规则（无关目录静默、多命中只列 slug、brief 不含其他项目），几秒跑完。
+研究树部分用合成样例测 `tree.py` 与 brief / index / research 的集成（多根、多节点挂接、转义竖线、悬空 parent/by/node、
+成环、`--blind` 不泄露认识与兄弟、tree.html 转义且无外部资源、渲染失败不阻断提交）。`KEEP_T=<空目录>` 可保留临时档案查看。
 
 `scenarios.sh` 定义四个场景的提示词（list / resume / checkpoint / new），都用自然措辞，不显式点名 skill。
 

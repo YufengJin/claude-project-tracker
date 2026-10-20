@@ -88,11 +88,25 @@ bash $PT auto                                  # SessionStart hook 跑的
 bash $PT brief <slug>                          # 按恢复顺序输出简报，设 ACTIVE
 bash $PT new <slug> "<名称>" [--host H] [workdir ...]  # 建档（git 仓），ACTIVE 指向
 bash $PT index <slug> "<一句话>" [状态]        # 写一句话/状态、提交、重建 INDEX
+bash $PT research <slug>                       # 研究项目：加 verifier.md、experiments.md、tree/Q1.md
+bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # 研究树：打印上下文，重写 tree.html
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
 bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
 bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
 bash $PT runs [slug | --wait <run>]            # 中心机：派活状态
 ```
+
+### 研究树（可选）
+
+研究项目可以在 `<slug>/tree/` 里记一棵问题与假设的树，一节点一文件（`Q3.md`、`H7.md`），frontmatter 写 `title`、
+`parent`（根节点留空，可以有多个根）、`status`（`open | active | parked | closed`），关了再写 `verdict`（`supported |
+refuted | inconclusive | superseded`，取代时加 `by:`）。正文 `## 判别`（跑之前写：什么结果说明它错）与 `## 结论`
+（判断，引用实验 id）；根节点另放项目级的当前认识、约束、教训。`experiments.md` 加一列 `node`，每行实验指向它判的节点。
+
+`pt tree <slug>` 打印根节点的认识/约束/教训、进行中节点及其祖先链、open/parked 标题与一致性告警（parent 或 by 悬空、
+closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--all` 加已关分支索引，`--ctx ID` 给在一个节点上干活的上下文，
+`--ctx ID --blind` 只给问题、约束和考官指标，方便让没见过现有猜想的 agent 独立出主意。每次运行（以及 `pt index`）重写
+`tree.html`：离线可开的单文件，可折叠的树加节点详情。`pt brief` 有研究树时用它代替台账末行。没有 `tree/` 的档案一切照旧。
 
 ## 用法
 
@@ -207,10 +221,11 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              唯一事实来源
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / migrate
+    scripts/tree.py                    研究树：解析、检查、打印上下文、渲染 tree.html（只用标准库）
     scripts/fleet.sh                   中心机：sync / dispatch / runs（由 pt.sh source）
     scripts/probe.sh                   经 ssh 在节点上跑，只需要 git
-    reference/templates/*.md           五个文件模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
+    reference/templates/*.md           五个文件加 verifier / experiments / tree-root 模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
     reference/writing.md               字段规则与正反例
     reference/hooks.md                 hook 如何隔离上下文；手动安装
   hooks/hooks.json                     SessionStart / PreCompact

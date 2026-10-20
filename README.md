@@ -94,11 +94,30 @@ bash $PT auto                                  # what the SessionStart hook runs
 bash $PT brief <slug>                          # recovery-order brief, sets ACTIVE
 bash $PT new <slug> "<name>" [--host H] [workdir ...]  # scaffold the archive as a git repo, ACTIVE
 bash $PT index <slug> "<one-liner>" [status]   # set the one-liner/status, commit, rebuild INDEX
+bash $PT research <slug>                       # research project: add verifier.md, experiments.md, tree/Q1.md
+bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # research tree: print context, rewrite tree.html
 bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
 bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
 bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
 bash $PT runs [slug | --wait <run>]            # hub: dispatch status
 ```
+
+### Research tree (optional)
+
+Research projects can keep a tree of questions and hypotheses in `<slug>/tree/`, one file per node
+(`Q3.md`, `H7.md`) with a small frontmatter: `title`, `parent` (empty for a root; several roots are fine),
+`status` (`open | active | parked | closed`) and, once closed, `verdict` (`supported | refuted | inconclusive |
+superseded`, plus `by:` for superseded). The body has `## 判别` (what would prove it wrong, written before running)
+and `## 结论` (the call, citing experiment ids); the root also holds the project-wide current understanding,
+constraints and lessons. `experiments.md` gets a `node` column so each experiment row points at the nodes it tests.
+
+`pt tree <slug>` prints the root's notes, active nodes with their ancestry, open/parked titles and consistency
+warnings (dangling `parent`/`by`, closed without verdict or conclusion, ledger rows pointing at missing nodes,
+cycles); `--all` adds an index of closed branches, `--ctx ID` the context for working on one node, and
+`--ctx ID --blind` only the question, constraints and the verifier's metric so an agent can propose ideas
+without seeing the existing ones. Every run (and every `pt index`) rewrites `tree.html`, a self-contained
+offline page with a collapsible tree and per-node details. `pt brief` shows the tree instead of the ledger tail.
+Archives without `tree/` behave exactly as before.
 
 ## How to use
 
@@ -231,10 +250,11 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              the single source of truth
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / migrate
+    scripts/tree.py                    research tree: parse, check, print context, render tree.html (stdlib only)
     scripts/fleet.sh                   hub: sync / dispatch / runs (sourced by pt.sh)
     scripts/probe.sh                   runs on a node over ssh; needs only git
-    reference/templates/*.md           the five files, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
+    reference/templates/*.md           the five files plus verifier / experiments / tree-root, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}
     reference/writing.md               field rules and good/bad examples
     reference/hooks.md                 how the hooks isolate context; manual install
   hooks/hooks.json                     Claude Code SessionStart / PreCompact
