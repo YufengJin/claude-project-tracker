@@ -91,6 +91,7 @@ bash $PT index <slug> "<一句话>" [状态]        # 写一句话/状态、提�
 bash $PT research <slug>                       # 研究项目：加 verifier.md、experiments.md、tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # 研究树：打印上下文，重写 tree.html
 bash $PT monitor [--out PATH]                  # 全局研究监控：所有研究项目汇成档案根的 research.html
+bash $PT serve [install|status|uninstall]      # 只读发布 research.html / tree.html 到 tailnet
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
 bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
 bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
@@ -109,6 +110,31 @@ closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--a
 `--ctx ID --blind` 只给问题、约束和考官指标，方便让没见过现有猜想的 agent 独立出主意。每次运行（以及 `pt index`）重写
 `tree.html`：离线可开的单文件，默认是可缩放、平移、收起子树的交互式总览图，可切到可折叠的列表，加节点详情。`pt research` 与 `pt index`
 还会补 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它）。`pt brief` 有研究树时用它代替台账末行。档案根的 `research.html`（`pt monitor`，`pt index` 研究项目后与中心机 sync 后自动重写）是所有研究项目的入口：每项目一张卡片（状态计数、焦点路径、告警），加最近 14 天各树的节点变化。没有 `tree/` 的档案一切照旧。
+
+### 在别的设备上看（可选）
+
+`pt serve` 把 `research.html` 与各 `<slug>/tree.html` 只读地发到你的 tailnet 内。服务只监听 `127.0.0.1`，
+`pt serve install` 在前面挂上 `tailscale serve`（只在 tailnet 内的 HTTPS，不开 Funnel）。档案里别的东西一概不发：
+只有 `/`、`/research.html`，和真实存在（不是符号链接）、含 `tree/` 的项目目录的 `/<slug>/tree.html`，其余 404，只允许 GET / HEAD。
+
+身份：`tailscale serve` 给每个转进来的请求加 `Tailscale-User-Login` 头。只有这个头在白名单里才应答，没有这个头一律 403，
+所以 tailnet 是团队共用的也没关系。配置写在 `<档案根>/.serve.conf`（本机文件，不进任何仓库；没有它服务拒绝启动）：
+
+```
+port=18443          # 本地端口，只绑 127.0.0.1
+https_port=8443     # tailnet 内 HTTPS 端口
+allow=you@example.com,colleague@example.com
+```
+
+```bash
+bash $PT serve install     # systemd 用户单元 pt-serve.service + tailscale serve，打印访问地址
+bash $PT serve status      # 单元、serve 配置、访问地址
+bash $PT serve uninstall   # 两样都撤掉
+bash $PT serve run --allow-local   # 前台调试：没有身份头的请求也放行
+```
+
+`tailscale serve` 报权限不够时执行一次 `sudo tailscale set --operator=$USER`。没开 linger（`loginctl show-user $USER -p Linger`）
+时单元只在你登录期间运行。不要把监听地址改成 `0.0.0.0` 或 tailnet IP：身份头可信，只因为除了 `tailscale serve`（和本机进程）没人够得着这个端口。
 
 ## 用法
 
@@ -223,9 +249,10 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              唯一事实来源
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / serve / migrate
     scripts/tree.py                    研究树：解析、检查、打印上下文、渲染 tree.html（只用标准库）
     scripts/monitor.py                 全局研究监控：汇总各研究项目与 git 历史，渲染 research.html
+    scripts/serve.py                   只读发布 research.html / tree.html 到 tailnet（只用标准库）
     scripts/fleet.sh                   中心机：sync / dispatch / runs（由 pt.sh source）
     scripts/probe.sh                   经 ssh 在节点上跑，只需要 git
     reference/templates/*.md           五个文件加 verifier / experiments / tree-root 模板，占位符 {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}

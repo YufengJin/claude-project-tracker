@@ -504,6 +504,44 @@ check "--out 别处：链接改成相对档案根"    'grep -q "href=\"../mon/ra
 check "monitor 不动项目档案"              '[ -z "$(git -C "$M/ra" status --porcelain)" ] && [ -z "$(git -C "$M/rb" status --porcelain)" ] && ! ls "$M"/*/research.html 2>/dev/null'
 export PROJECT_TRACKER_ROOT="$T/root"
 
+echo "# serve（只读 HTTP，身份白名单，路径白名单）"
+SV="$T/srv"; mkdir -p "$SV/ra/tree" "$SV/nt" "$SV/ln/tree" "$T/outside/tree"
+echo '<p>RESEARCH</p>' > "$SV/research.html"; echo '<p>TREE-RA</p>' > "$SV/ra/tree.html"
+echo secret > "$SV/ra/state.md"; echo secret > "$SV/ra/journal.md"; echo '<p>NT</p>' > "$SV/nt/tree.html"
+echo '<p>OUTSIDE</p>' > "$T/outside/tree.html"; ln -s "$T/outside" "$SV/evil"; ln -s "$T/outside/tree.html" "$SV/ln/tree.html"
+SERVE="$(dirname "$PT")/serve.py"
+check "没有 .serve.conf 拒绝启动"          '! python3 "$SERVE" --root "$SV" run --port 0 2>"$T/sv.err" && grep -q "serve.conf" "$T/sv.err"'
+printf 'port=18443\nallow=Me@Example.com, other@example.com\n' > "$SV/.serve.conf"
+python3 "$SERVE" --root "$SV" run --port 0 >"$T/sv.out" 2>"$T/sv.log" & SVPID=$!
+for _ in $(seq 50); do grep -q listening "$T/sv.out" 2>/dev/null && break; sleep 0.1; done
+U="http://127.0.0.1:$(sed -n 's/.*127.0.0.1:\([0-9]*\).*/\1/p' "$T/sv.out")"
+code() { curl -s --path-as-is -o /dev/null -w '%{http_code}' "$@"; }
+ME=(-H 'Tailscale-User-Login: me@example.com')
+check "只监听 127.0.0.1"                  'grep -q "^listening on 127.0.0.1:" "$T/sv.out"'
+check "无身份头 403"                       '[ "$(code "$U/")" = 403 ]'
+check "非白名单身份 403"                   '[ "$(code -H "Tailscale-User-Login: x@evil.com" "$U/")" = 403 ]'
+check "Host 不是本机/ts.net 403（防 DNS rebinding）" '[ "$(code "${ME[@]}" -H "Host: evil.com" "$U/")" = 403 ]'
+check "白名单身份 / → research.html"       'curl -s "${ME[@]}" "$U/" | grep -q RESEARCH && [ "$(code "${ME[@]}" "$U/research.html")" = 200 ]'
+check "白名单身份（大小写无关）tree.html 200" 'curl -s -H "Tailscale-User-Login: OTHER@example.com" "$U/ra/tree.html" | grep -q TREE-RA'
+check "带查询串与锚点照常"                 '[ "$(code "${ME[@]}" "$U/ra/tree.html?x=1")" = 200 ]'
+for p in /../ /ra/../research.html /%2e%2e/research.html /ra/%2e%2e/ra/tree.html /ra%2ftree.html /ra/state.md /ra/journal.md /ra/tree/ /nope/tree.html /nt/tree.html /evil/tree.html /ln/tree.html /.serve.conf //etc/passwd /RA/tree.html; do
+  check "拒绝 $p"                          '[ "$(code "${ME[@]}" "$U$p")" = 404 ]'
+done
+check "POST 405"                           '[ "$(code "${ME[@]}" -X POST "$U/")" = 405 ]'
+check "HEAD 200 无正文"                    '[ "$(curl -s -I "${ME[@]}" "$U/" -o /dev/null -w "%{http_code} %{size_download}")" = "200 0" ]'
+hd=$(curl -s -D - -o /dev/null "${ME[@]}" "$U/"); hd403=$(curl -s -D - -o /dev/null "$U/")
+check "响应头齐全（200 与 403 都有）"       'for h in "Cache-Control: no-cache" "X-Content-Type-Options: nosniff" "Content-Security-Policy: default-src '"'"'none'"'"'" "Referrer-Policy: no-referrer"; do grep -qi "^$h" <<<"$hd" && grep -qi "^$h" <<<"$hd403" || exit 1; done'
+check "日志记下身份"                       'grep -q "me@example.com" "$T/sv.log"'
+kill $SVPID 2>/dev/null; wait $SVPID 2>/dev/null
+python3 "$SERVE" --root "$SV" run --port 0 --allow-local >"$T/sv2.out" 2>/dev/null & SVPID=$!
+for _ in $(seq 50); do grep -q listening "$T/sv2.out" 2>/dev/null && break; sleep 0.1; done
+U2="http://127.0.0.1:$(sed -n 's/.*127.0.0.1:\([0-9]*\).*/\1/p' "$T/sv2.out")"
+check "--allow-local：无头放行，坏身份仍 403" '[ "$(code "$U2/")" = 200 ] && [ "$(code -H "Tailscale-User-Login: x@evil.com" "$U2/")" = 403 ]'
+kill $SVPID 2>/dev/null; wait $SVPID 2>/dev/null
+printf 'port=18443\n' > "$SV/.serve.conf"
+check "allow 为空拒绝启动"                 '! python3 "$SERVE" --root "$SV" run --port 0 2>/dev/null'
+check "pt serve 经 pt.sh 转发（--root 取档案根）" 'PROJECT_TRACKER_ROOT="$T/none" bash "$PT" serve run 2>&1 | grep -q "没有档案根"'
+
 echo "# migrate（0.3 档案）"
 export PROJECT_TRACKER_ROOT="$T/old"
 mkdir -p "$T/old/legacy" "$T/old/elsewhere"

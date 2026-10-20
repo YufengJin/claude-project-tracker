@@ -97,6 +97,7 @@ bash $PT index <slug> "<one-liner>" [status]   # set the one-liner/status, commi
 bash $PT research <slug>                       # research project: add verifier.md, experiments.md, tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # research tree: print context, rewrite tree.html
 bash $PT monitor [--out PATH]                  # global research monitor: all research projects in <root>/research.html
+bash $PT serve [install|status|uninstall]      # read-only tailnet view of research.html / tree.html
 bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
 bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
 bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
@@ -123,6 +124,35 @@ collapsible list as the alternate view, plus per-node details. `pt research` and
 `research.html` at the archive root (`pt monitor`; rewritten automatically after `pt index` on a research project and after every hub sync)
 is the entry point to all research projects: one card per project (status counts, focus paths, warnings) plus the last 14 days of node changes across trees.
 Archives without `tree/` behave exactly as before.
+
+### Viewing on other devices (optional)
+
+`pt serve` publishes `research.html` and every `<slug>/tree.html` read-only inside your tailnet. It listens only on
+`127.0.0.1` and `pt serve install` puts `tailscale serve` in front of it (tailnet-only HTTPS, never Funnel). Nothing
+else in the archive is served: only `/`, `/research.html` and `/<slug>/tree.html` for real (non-symlink) project
+directories with a `tree/`; everything else is 404, and only GET/HEAD are allowed.
+
+Identity: `tailscale serve` adds a `Tailscale-User-Login` header to each proxied request. The server answers only when
+that header is on the allow list; a request without it is 403, so a shared tailnet is fine. Configure it in
+`<root>/.serve.conf` (a local file, never committed; the server refuses to start without it):
+
+```
+port=18443          # local port, bound to 127.0.0.1 only
+https_port=8443     # tailnet HTTPS port
+allow=you@example.com,colleague@example.com
+```
+
+```bash
+bash $PT serve install     # systemd user unit pt-serve.service + tailscale serve; prints the URL
+bash $PT serve status      # unit, serve config, URL
+bash $PT serve uninstall   # remove both
+bash $PT serve run --allow-local   # foreground debugging: requests without the header are let through
+```
+
+If `tailscale serve` is denied, run `sudo tailscale set --operator=$USER` once. Without lingering
+(`loginctl show-user $USER -p Linger`) the unit only runs while you are logged in. Do not change the listen address
+to `0.0.0.0` or a tailnet IP: the identity header is trustworthy only because nothing but `tailscale serve` (and
+local processes) can reach the port.
 
 ## How to use
 
@@ -255,9 +285,10 @@ plugins/project-tracker/
   .codex-plugin/plugin.json
   skills/project-tracker/              the single source of truth
     SKILL.md
-    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / migrate
+    scripts/pt.sh                      list / where / auto / brief / new / index / research / tree / monitor / serve / migrate
     scripts/tree.py                    research tree: parse, check, print context, render tree.html (stdlib only)
     scripts/monitor.py                 global research monitor: research projects + git history → research.html
+    scripts/serve.py                   read-only tailnet view of research.html / tree.html (stdlib only)
     scripts/fleet.sh                   hub: sync / dispatch / runs (sourced by pt.sh)
     scripts/probe.sh                   runs on a node over ssh; needs only git
     reference/templates/*.md           the five files plus verifier / experiments / tree-root, with {{SLUG}} {{NAME}} {{DATE}} {{WORKDIR}} {{HOST}}

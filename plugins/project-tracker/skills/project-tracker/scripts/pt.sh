@@ -11,6 +11,7 @@
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
+#   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
@@ -532,9 +533,10 @@ case "${1:-}" in
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   migrate)  cmd_migrate ;;
+  serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
   monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,20p' "$0"; exit 1 ;;
+  *)        sed -n '2,21p' "$0"; exit 1 ;;
 esac
