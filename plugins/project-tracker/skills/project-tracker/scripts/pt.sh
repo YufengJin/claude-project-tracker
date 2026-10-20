@@ -411,6 +411,18 @@ cmd_new() {
   echo "下一步：把用户的回答填进 charter.md（目标/完成标准/不做/约束/验证），再写 plan.md。"
 }
 
+# 研究树档案根下的两个小配置：.ignore 让 ripgrep / Grep 跳过 tree.html，.gitattributes 让 git diff 不展开它。
+# 缺哪行补哪行，已有的不动、不重复追加；打印新补的文件名
+tree_dotfiles() {
+  local d="$1" f line
+  for f in .ignore .gitattributes; do
+    case "$f" in .ignore) line='tree.html' ;; *) line='tree.html -diff' ;; esac
+    grep -qxF "$line" "$d/$f" 2>/dev/null && continue
+    [ -s "$d/$f" ] && [ -n "$(tail -c1 "$d/$f")" ] && printf '\n' >> "$d/$f"
+    printf '%s\n' "$line" >> "$d/$f" && printf ' %s' "$f"
+  done
+}
+
 cmd_research() {
   local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh research <slug>"
   local DIR="$ROOT/$SLUG"; [ -f "$DIR/charter.md" ] || die "项目不存在: $SLUG"
@@ -425,6 +437,7 @@ cmd_research() {
     name="$(sed -n '1s/^# *//p' "$DIR/charter.md")"
     sed -e "s|{{NAME}}|$(sed_esc "${name:-$SLUG}")|g" "$TPL/tree-root.md" > "$DIR/tree/Q1.md"; added="$added tree/Q1.md"
   fi
+  added="$added$(tree_dotfiles "$DIR")"
   [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md、experiments.md 与 tree/"; return 0; }
   commit_all "$DIR" "research @$THIS_HOST: 加$added" || die "git 提交失败: $DIR"
   local st; st="$(grep -m1 'Status:' "$DIR/verifier.md" | sed 's/.*Status:[[:space:]]*//; s/[（(].*//')"
@@ -451,6 +464,7 @@ cmd_index() {
   set_summary "$SLUG" "$SUMMARY" replace
   # 研究树：提交前重渲染 tree.html（派生物，随档案提交）；失败只告警
   if [ -d "$ROOT/$SLUG/tree" ]; then
+    tree_dotfiles "$ROOT/$SLUG" >/dev/null
     python3 "$HERE/tree.py" "$ROOT/$SLUG" --render 2>&1 | sed 's/^/[project-tracker] /' ; [ "${PIPESTATUS[0]}" -eq 0 ] \
       || echo "[warn] tree.html 没渲染成（照常提交）：pt.sh tree $SLUG 看原因"
     # 合并冲突里的 tree.html 是派生物，刚重新渲染过，直接算合好了

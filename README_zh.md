@@ -106,7 +106,8 @@ refuted | inconclusive | superseded | abandoned`，取代时加 `by:`）。正�
 `pt tree <slug>` 打印活跃根节点的认识/约束/教训（搁置或已关的根只给指引）、进行中节点及其祖先链、open/parked 标题与一致性告警（parent 或 by 悬空、
 closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--all` 加已关分支索引，`--ctx ID` 给在一个节点上干活的上下文，
 `--ctx ID --blind` 只给问题、约束和考官指标，方便让没见过现有猜想的 agent 独立出主意。每次运行（以及 `pt index`）重写
-`tree.html`：离线可开的单文件，可折叠的树加节点详情。`pt brief` 有研究树时用它代替台账末行。没有 `tree/` 的档案一切照旧。
+`tree.html`：离线可开的单文件，默认是可缩放、平移、收起子树的交互式总览图，可切到可折叠的列表，加节点详情。`pt research` 与 `pt index`
+还会补 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它）。`pt brief` 有研究树时用它代替台账末行。没有 `tree/` 的档案一切照旧。
 
 ## 用法
 

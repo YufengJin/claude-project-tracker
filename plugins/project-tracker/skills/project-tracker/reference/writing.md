@@ -52,6 +52,7 @@ Open:     新冒出来的问题
 ## verifier.md、experiments.md 与 tree/（研究项目）
 
 - `verifier.md`（考官卡）：拿什么判对错、真值哪来、指标与聚合怎么定义、判定依据；不知道写「未知」。状态行写 `Status: 已冻结（…）`（状态值以「冻结」或「已冻结」开头；「未冻结」「待冻结」不算）之后，`pt brief` 只打印状态行与「指标与聚合定义」「判定依据」两节。
+- 档案根的 `.ignore`（`tree.html`）与 `.gitattributes`（`tree.html -diff`）由 pt 补上，让搜索跳过、git diff 不展开这个生成的大文件；不用手改。
 - `experiments.md`（台账）：一行一个实验，`id | node | 问题 / 对照 | 读数 | 运行 | 结论 | 证据`。`node` 填研究树节点 ID，多个用逗号分隔，没有就空着；单元格里的竖线写 `\|`。可以分多个 `## ` 小节、多张表；表头有 `node`（或「节点」）列的表才会挂到节点上；注释与代码块里的表格行不算。行不删：确认阶段可以先占一行（读数空着）、跑完回填，更正留痕。
 - 确认阶段「占行后先提交」：`git -C <档案> add tree/<ID>.md experiments.md && git commit -m "占行 <实验 id>"`。不用 `pt index`，它会改 state 的一句话和 INDEX。
 - `tree/<ID>.md`（研究树节点），例：

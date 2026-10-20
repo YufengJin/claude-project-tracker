@@ -116,7 +116,9 @@ warnings (dangling `parent`/`by`, closed without verdict or conclusion, ledger r
 cycles); `--all` adds an index of closed branches, `--ctx ID` the context for working on one node, and
 `--ctx ID --blind` only the question, constraints and the verifier's metric so an agent can propose ideas
 without seeing the existing ones. Every run (and every `pt index`) rewrites `tree.html`, a self-contained
-offline page with a collapsible tree and per-node details. `pt brief` shows the tree instead of the ledger tail.
+offline page that opens on an interactive overview graph (zoom, pan, fold subtrees, "alive only") with a
+collapsible list as the alternate view, plus per-node details. `pt research` and `pt index` also add `.ignore`
+(`tree.html`, so ripgrep / Grep skip it) and `.gitattributes` (`tree.html -diff`, so git diff does not expand it). `pt brief` shows the tree instead of the ledger tail.
 Archives without `tree/` behave exactly as before.
 
 ## How to use

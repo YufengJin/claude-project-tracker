@@ -142,6 +142,7 @@ R="$T/root/rs"
 check "research 建 verifier、experiments、tree/Q1.md" '[ -f "$R/verifier.md" ] && [ -f "$R/experiments.md" ] && [ -f "$R/tree/Q1.md" ] && grep -q "^title: 研究 R$" "$R/tree/Q1.md"'
 check "research 提交且干净"            '[ -z "$(git -C "$R" status --porcelain)" ]'
 check "台账模板有 node 列"             'grep -q "^| id | node |" "$R/experiments.md"'
+check "research 写 .ignore / .gitattributes 并提交" '[ "$(cat "$R/.ignore")" = tree.html ] && [ "$(cat "$R/.gitattributes")" = "tree.html -diff" ] && git -C "$R" ls-files | grep -qx .ignore && git -C "$R" ls-files | grep -qx .gitattributes'
 check "research 幂等"                  'bash "$PT" research rs | grep -q "已有"'
 check "模板根节点无告警"                'bash "$PT" tree rs | sed -n "/^## 告警/,\$p" | grep -q "^(无)"'
 cat > "$R/tree/Q1.md" <<'EOF'
@@ -209,6 +210,15 @@ check "html 转义正文"                  'grep -qF "&lt;script&gt;alert(1)&lt;
 check "html [[ID]] 变成跳转、行内代码"   'grep -qF "<a class=\"ref\" href=\"#H1\">H1</a>" "$H" && grep -qF "<code>code|x</code>" "$H"'
 check "html 挂接台账行（转义竖线还原成单元格）" 'grep -qF "<td>对照 a | b</td>" "$H"'
 check "html 无外部资源"                 '! grep -qiE "https?://|src=|<link|@import|url\(" "$H"'
+check "html 有总览图：SVG 容器、内嵌数据（先序、父下标、台账行数）" 'grep -q "<svg id=gsvg" "$H" && python3 - "$H" <<PY
+import json,re,sys; s=open(sys.argv[1]).read()
+d=json.loads(re.search(r"<script type=application/json id=gdata>(.*?)</script>",s,re.S).group(1))
+N=d["nodes"]; ix={n["i"]:k for k,n in enumerate(N)}
+ok=d["slug"]=="rs" and len(N)==s.count("<article id=\"n-")-("n-__ledger" in s) and N[ix["H2"]]["p"]==ix["Q1"] and N[ix["H2"]]["n"]>=1
+ok=ok and all(n["p"]<k for k,n in enumerate(N)) and "H99" not in N[ix["H5"]]["b"]
+sys.exit(0 if ok else 1)
+PY'
+check "html 视图切换与本项目专属的 localStorage 键" 'grep -q "id=vg type=button" "$H" && grep -q "id=vl type=button" "$H" && grep -q "KEY=.pt-tree:.+DATA.slug" "$H" && ! grep -q "pt-tree-hc" "$H"'
 check "html 多根都在左侧树"             'python3 - "$H" <<PY
 import re,sys; s=open(sys.argv[1]).read(); nav=s[s.index("<nav>"):s.index("</nav>")]
 top=re.findall(r"<nav><ul>(.*)</ul></nav>",s,re.S)[0]
@@ -220,6 +230,9 @@ check "未冻结的考官卡全文打印"           'grep -q "^## 数据与暴�
 sed -i "s/^Updated: .*/Updated: $D   Status: 已冻结（用户确认；改考官走 ADR）/" "$R/verifier.md"
 out=$(bash "$PT" brief rs)
 check "冻结考官只打印状态行 + 两节"      'grep -q "Status: 已冻结" <<<"$out" && grep -q "^## 指标与聚合定义" <<<"$out" && grep -q "^## 判定依据" <<<"$out" && ! grep -q "^## 数据与暴露史" <<<"$out" && grep -q "其余节读原文" <<<"$out"'
+printf 'build/\n' > "$R/.ignore"; rm -f "$R/.gitattributes"; git -C "$R" add -A >/dev/null; git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm "改 ignore"
+bash "$PT" index rs "研究树就位" >/dev/null; bash "$PT" index rs "研究树就位二" >/dev/null
+check "index 补 .ignore / .gitattributes：保留原内容、只补一次、随提交" '[ "$(cat "$R/.ignore")" = "$(printf "build/\ntree.html")" ] && [ "$(cat "$R/.gitattributes")" = "tree.html -diff" ] && [ -z "$(git -C "$R" status --porcelain)" ]'
 rm -f "$H"
 out=$(bash "$PT" index rs "研究树就位")
 check "index 渲染 tree.html 并一起提交"  '[ -f "$H" ] && [ -z "$(git -C "$R" status --porcelain)" ] && git -C "$R" ls-files | grep -qx tree.html && grep -q "告警 [0-9]* 条" <<<"$out"'
@@ -248,6 +261,12 @@ class P(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         bad.extend(k for k, v in attrs if k.startswith("on") or k == "autofocus")
 P().feed(open(sys.argv[1]).read()); sys.exit(1 if bad else 0)
+PY'
+check "S1 注入串在图数据里被转义（无 <，解析回原文）" 'python3 - "$B/tree.html" <<PY
+import json,re,sys; s=open(sys.argv[1]).read()
+raw=re.search(r"<script type=application/json id=gdata>(.*?)</script>",s,re.S).group(1)
+d=json.loads(raw); t=[n for n in d["nodes"] if n["i"]=="H1"][0]
+sys.exit(0 if "<" not in raw and ">" not in raw and r"\\u003cimg src=x onerror=alert(3)\\u003e" in raw and t["t"]=="<img src=x onerror=alert(3)>" and t["s"]=="unknown" else 1)
 PY'
 check "S1 未知 status/verdict 的 class 是 s-unknown / v-unknown" 'grep -q "class=\"n s-unknown v-unknown\"" "$B/tree.html"'
 check "S1 非法 status 计入「其他」"    'grep -q "data-st=\"other\" checked> 其他 1" "$B/tree.html" && grep -q "data-status=\"other\"" "$B/tree.html"'
