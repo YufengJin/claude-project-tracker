@@ -24,7 +24,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
     ├── journal.md  # 只追加，一会话一条
     ├── decisions.md# 只追加的 ADR
     ├── verifier.md # 研究项目：考官卡（拿什么判对错），用户确认后冻结
-    ├── experiments.md # 研究项目：实验台账，一行一个实验，只追加；读数只在这里
+    ├── experiments.md # 研究项目：实验台账，一行一个实验，行不删（占行后回填读数，更正留痕）；读数只在这里
     ├── tree/       # 研究项目（可选）：研究树，一个问题或假设一个文件
     ├── tree.html   # 研究树的可视化（pt 生成，随档案提交，不手改）
     └── archive/    # state 压缩掉的旧内容
@@ -48,7 +48,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt where` | 当前目录命中的、Host 是本机的进行中项目 |
 | `pt brief <slug>` | 按恢复顺序打印简报、设 ACTIVE，并把本会话绑到这个项目 |
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
-| `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX |
+| `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话进 INDEX，不是提交说明） |
 | `pt research <slug>` | 研究项目：加考官卡 `verifier.md`、实验台账 `experiments.md` 与研究树根节点 `tree/Q1.md`（已有的不动） |
 | `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
@@ -96,8 +96,8 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 写入顺序（不可重建的先写）：
 
-1. **补 experiments.md**（研究项目）：本段做过的实验各一行或补读数与结论；有研究树的，同步改动到的节点（status、verdict、结论）。然后**追加 journal**。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。session 号 brief 已打印。
-2. **重写 state**。journal 的 `Learned` 里失败的路**提升到 state 的"别再试"**，否则下个会话看不到。
+1. **补 experiments.md**（研究项目）：本段做过的实验各一行或补读数与结论；有研究树的，同步改动到的节点（status、verdict、结论）和根的「当前认识」。然后**追加 journal**。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。session 号 brief 已打印。
+2. **重写 state**。journal 的 `Learned` 里失败的路**提升到 state 的"别再试"**，否则下个会话看不到。有研究树的项目不在 state 写这些：失败的路写进那个节点的 `## 结论`，「别再这样做」写进根的 `## 教训`，现在相信什么写进根的 `## 当前认识`；state 只留指针。
 3. **更新 plan**（若变）。重大方向调整先在 journal 记为什么。
 4. **追加 decisions**（若做了架构级选择）。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
 5. `pt index <slug> "<一句话>" [状态]`：写 state 的一句话、提交、重建 INDEX。项目做完或放弃在这里给状态。
@@ -116,10 +116,11 @@ brief 出现"分叉"时，两边各有对方没有的 checkpoint：先 `git merg
 
 研究常常不是一条直线：一个问题拆出几个假设，假设被否掉就回到问题换一个。研究树把这条谱系写下来，让新会话一眼看到哪些分支还活着、哪些关了、为什么关。
 
-- 一节点一文件 `tree/<ID>.md`：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。根节点另有项目级唯一的 `## 当前认识`、`## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
-- 台账 `experiments.md` 的 `node` 列填这行实验判的节点（可多个）。读数只在台账，节点只引用实验 id。
-- `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点、成环）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意。
+- 一节点一文件 `tree/<ID>.md`（文件名只能是 `Q<n>.md` / `H<n>.md`，别的文件脚本忽略并告警）：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（一个 ID；根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded | abandoned`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。每个根另有属于它自己的 `## 当前认识`、`## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
+- 台账 `experiments.md` 的 `node` 列填这行实验判的节点（可多个）。读数只在台账，节点只引用实验 id。行不删：可以先占行、跑完回填读数，更正留痕。
+- `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点或行列数不对、成环、frontmatter 写错、被忽略的文件、合并冲突标记）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别（其中的 `[[ID]]` 换成 `[[…]]`）、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意——所以问题节点的判别不写候选与排名。根的约束里 `[[Q5]]` 引用了另一个根时，那个根的约束也一并给。
 - 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，左侧可折叠的树、右侧节点详情与挂接的台账行。`pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
+- `tree.html` 是派生物：合并冲突里不用手合，`pt index` 会重新生成并收下；别的文件还留着冲突标记时 `pt index` 拒绝提交。
 - 没有 `tree/` 的档案一切照旧；旧台账没有 `node` 列也照常解析。字段细节见 [reference/writing.md](reference/writing.md)。
 
 ## 写作规则

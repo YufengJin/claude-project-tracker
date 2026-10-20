@@ -107,8 +107,8 @@ bash $PT runs [slug | --wait <run>]            # hub: dispatch status
 Research projects can keep a tree of questions and hypotheses in `<slug>/tree/`, one file per node
 (`Q3.md`, `H7.md`) with a small frontmatter: `title`, `parent` (empty for a root; several roots are fine),
 `status` (`open | active | parked | closed`) and, once closed, `verdict` (`supported | refuted | inconclusive |
-superseded`, plus `by:` for superseded). The body has `## 判别` (what would prove it wrong, written before running)
-and `## 结论` (the call, citing experiment ids); the root also holds the project-wide current understanding,
+superseded | abandoned`, plus `by:` for superseded). The body has `## 判别` (what would prove it wrong, written before running)
+and `## 结论` (the call, citing experiment ids); each root also holds its own current understanding,
 constraints and lessons. `experiments.md` gets a `node` column so each experiment row points at the nodes it tests.
 
 `pt tree <slug>` prints the notes of active roots (parked or closed roots get a one-line pointer), active nodes with their ancestry, open/parked titles and consistency
