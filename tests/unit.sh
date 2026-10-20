@@ -263,6 +263,7 @@ cat >> "$B/experiments.md" <<'EOF'
 <!--
 | E8 | H88 | 注释里的行 | - | - | - | - |
 -->
+| E2 | H1 | 注释后同表的行 | 1 | 成功 | 支持 | p |
 
 ```
 | id | node |
@@ -271,7 +272,7 @@ cat >> "$B/experiments.md" <<'EOF'
 ```
 EOF
 out=$(tw)
-check "S3 注释、代码块里的表格行不进台账" 'grep -q "台账 1 行" <<<"$out" && ! grep -q "H88\|H99" <<<"$out"'
+check "S3 注释、代码块里的表格行不进台账" 'grep -q "台账 2 行" <<<"$out" && ! grep -q "H88\|H99" <<<"$out" && ! grep -q "表外的行" <<<"$out"'
 # S4 --blind 隐去节点引用、### 结论 不进判别、无考官卡明说
 fmn H3 "盲测对象" Q1 active '' '## 判别\n候选 [[H1]] 排第一，[[H2]] 第二。\n### 结论\n泄露的结论'
 out=$(tw --ctx H3 --blind)

@@ -263,9 +263,13 @@ def parse_ledger(path):
     if CONFLICT_RE.search(text):
         warns.append("experiments.md 含合并冲突标记（<<<<<<< / >>>>>>>），先合并再用")
     lines = strip_comments(text, warns, "experiments.md ", keep_lines=True).split("\n")
+    raw = text.split("\n")
     sec, cur, fence, i = "", None, False, 0
     while i < len(lines):
         ln, no = lines[i], i + 1
+        if not ln.strip() and i < len(raw) and raw[i].strip():  # 整行在注释里：跳过，不打断表
+            i += 1
+            continue
         if FENCE_RE.match(ln):
             fence, cur = not fence, None
         elif fence:
