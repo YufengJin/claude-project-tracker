@@ -105,6 +105,9 @@ bash $PT monitor [--out PATH]                  # global research monitor: all re
 bash $PT site [--out DIR]                      # human-readable read-only site: all projects → project → node, in <root>/site/
 bash $PT serve [install|status|uninstall]      # read-only tailnet view of site/, research.html and tree.html
 bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
+bash $PT id [<slug|id>]                        # project id: sha1(slug) prefix, shortest unique (≥4 hex); prints "id slug"
+bash $PT rm <slug|id> ...                      # hub: delete projects (backup to .backup/, tombstone in .deleted)
+bash $PT restore <slug>                        # hub: unpack the newest deleted-<slug>-*.tgz backup, drop the tombstone
 bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
 bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
 bash $PT runs [slug | --wait <run>]            # hub: dispatch status

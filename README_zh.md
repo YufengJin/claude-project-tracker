@@ -98,6 +98,9 @@ bash $PT monitor [--out PATH]                  # 全局研究监控：所有研�
 bash $PT site [--out DIR]                      # 给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/
 bash $PT serve [install|status|uninstall]      # 只读发布 site/、research.html / tree.html 到 tailnet
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
+bash $PT id [<slug|编号>]                      # 项目编号：sha1(slug) 前缀，取不重名的最短长度（至少 4 位）；打印「编号 slug」
+bash $PT rm <slug|编号> ...                    # 中心机：删项目（先备份到 .backup/，记墓碑 .deleted）
+bash $PT restore <slug>                        # 中心机：解回最新的 deleted-<slug>-*.tgz 备份，去掉墓碑
 bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
 bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
 bash $PT runs [slug | --wait <run>]            # 中心机：派活状态

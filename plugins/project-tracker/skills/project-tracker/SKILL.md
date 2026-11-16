@@ -63,7 +63,9 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt site [--out DIR]` | 给人看的只读站点 `<档案根>/site/`：全部项目 → 项目页（现在、等你拍板、条件表、最近结论、按问题分组的卡；工程项目放最近结果与决定）→ 节点页（卡、证据、判据、原文、释义）。只经 records 取数，不调模型；`pt monitor` 顺带生成 |
 | `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html`、各 `tree.html` 与 `site/` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
-| `pt rm <slug> …` | 中心机删项目：先打包到 `<档案根>/.backup/deleted-<slug>-<时间>.tgz`，slug 记进墓碑 `.deleted`，同步不再从节点导入（节点副本不动）；ACTIVE 或有会话绑定的拒删。用户明说要删才用，`pt new` 同名会清掉墓碑 |
+| `pt rm <slug\|编号> …` | 中心机删项目（编号见 `pt list` / `pt id`，动手前打印「编号 → slug」）：先打包到 `<档案根>/.backup/deleted-<slug>-<时间>.tgz`，slug 记进墓碑 `.deleted`，同步不再从节点导入（节点副本不动）；ACTIVE 或有会话绑定的拒删。用户明说要删才用，`pt new` 同名会清掉墓碑 |
+| `pt restore <slug>` | 中心机：从 `.backup/` 里这个 slug 最新的删除备份解回、去掉墓碑、重建总览；目录已存在就拒绝 |
+| `pt id [<slug\|编号>]` | 项目编号（sha1(slug) 前缀，取让全部项目不重名的最短长度、至少 4 位；`pt list` 的「编号」列、站点项目名旁）：打印「编号 slug」，不带参数列全部 |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |
 
 SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机项目就自动注入简报；命中多个只列 slug 等用户点名；命中零个静默。
