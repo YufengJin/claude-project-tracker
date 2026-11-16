@@ -20,6 +20,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tree  # noqa: E402
+import progress  # noqa: E402  顶部总览与卡片的名称、状态、主机、一句话：与 pt list / INDEX.md 同一份数据
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 PATH_RE = re.compile(r"^tree/([QH][1-9][0-9]*)\.md$")
@@ -136,20 +137,6 @@ def history(d, days):
     return events, last
 
 
-def index_rows(root):
-    """INDEX.md 各行：slug → (名称, 状态, 主机, 一句话)。"""
-    rows = {}
-    try:
-        text = tree.read_text(os.path.join(root, "INDEX.md"))
-    except (OSError, UnicodeDecodeError):
-        return rows
-    for ln in text.split("\n"):
-        c = [x.strip() for x in ln.strip().strip("|").split("|")]
-        if ln.startswith("| ") and len(c) >= 6 and SLUG_RE.match(c[0]):
-            rows[c[0]] = (c[1], c[2], c[3], c[5])
-    return rows
-
-
 def charter_field(d, key):
     try:
         for ln in tree.read_text(os.path.join(d, "charter.md")).split("\n"):
@@ -213,7 +200,8 @@ def collect(root, days):
     me = os.environ.get("PT_HOSTNAME") or os.uname().nodename.split(".")[0]
     alias = host_aliases(root)
     label = lambda h: "" if not h else "本机" if h == me else alias.get(h, h)  # noqa: E731
-    idx = index_rows(root)
+    overview = progress.collect(root, me)
+    idx = {r["slug"]: (r["name"], r["status_raw"], r["host"], r["summary"]) for r in overview}
     projects, events = [], []
     for slug in sorted(os.listdir(root)):
         d = os.path.join(root, slug)
@@ -245,7 +233,7 @@ def collect(root, days):
                          "warn": len(t.warnings), "last": last, "nodes": t.nodes})
     projects.sort(key=lambda p: (-(p["last"] or 0), p["slug"]))
     events.sort(key=lambda e: -e["ts"])  # 稳定排序：同一秒内保持各项目 git log 的先后
-    return projects, events
+    return projects, events, overview
 
 
 # ---------- 页面 ----------
@@ -299,6 +287,9 @@ a{color:var(--link)}a.id{font-family:ui-monospace,monospace;font-size:12.5px;tex
 .b.v-abandoned{border-color:var(--abandoned);border-style:dotted}.b.s-unknown,.b.v-unknown{border-color:var(--other);border-style:dashed}
 details summary{cursor:pointer;color:var(--mut);font-size:12.5px}
 .empty{color:var(--mut);padding:12px 0}
+.ov{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.ov table{border-collapse:collapse;font-size:12.5px;width:100%}.ov th,.ov td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
+.ov th{color:var(--mut);font-weight:600;background:var(--bg)}.ov td.bl{white-space:normal;min-width:16em;max-width:32em}.ov td.sl{font-family:ui-monospace,monospace}
 @media (max-width:520px){header{padding:10px 16px}main{padding:12px 16px 40px}.cm{grid-template-columns:3em 1fr;gap:0 8px}}
 """
 
@@ -419,7 +410,25 @@ def timeline(events, base):
     return "".join(out)
 
 
-def render(projects, events, sync, days, base, now):
+def overview_table(rows, base):
+    """全部项目的进度总览（与 pt list 同列同序）；研究项目的 slug 链到各自的 tree.html。"""
+    if not rows:
+        return ""
+    th = "".join(f"<th>{esc(c)}</th>" for c in progress.COLS)
+    trs = []
+    for r in rows:
+        c = progress.cells(r)
+        slug = (f'<a href="{esc(base)}{esc(r["slug"])}/tree.html">{esc(r["slug"])}</a>' if r["research"] else esc(r["slug"]))
+        tds = [f'<td class=sl title="{esc(r["name"])}">{slug}</td>',
+               f'<td class="{"warn" if (r["contra"] or r["idle"]) else ""}">{esc(c[1])}</td>']
+        tds += [f"<td>{esc(x)}</td>" for x in c[2:7]]
+        tds.append(f'<td class=bl title="{esc(r["belief"])}">{esc(c[7])}</td>')
+        trs.append("<tr>" + "".join(tds) + "</tr>")
+    return (f"<h2 class=sec>全部项目总览（{len(rows)} 个；与 pt list 同一份数据，排序：等用户 &gt; 停滞 &gt; 矛盾 &gt; 最近活动）</h2>"
+            f"<div class=ov><table><thead><tr>{th}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>")
+
+
+def render(projects, events, sync, days, base, now, overview=()):
     sy = ""
     if sync and sync[0]:
         sy = f'<span class=m>上次同步 {mdhm(sync[0]) if now - sync[0] > 86400 else hm(sync[0])}（{sync[1]}/{sync[2]} 台在线）</span>'
@@ -433,6 +442,7 @@ def render(projects, events, sync, days, base, now):
     return (f"<!doctype html>\n<html lang=zh-CN><head><meta charset=utf-8>"
             f"<meta name=viewport content=\"width=device-width,initial-scale=1\"><title>研究监控</title>"
             f"<style>{CSS}</style></head><body data-gen=\"{int(now)}\">\n{head}\n<main>"
+            f"{overview_table(overview, base)}"
             f"<h2 class=sec>研究项目（按最近 tree/ 变动排序）</h2><div class=grid>{cards}</div>"
             f"<h2 class=sec>最近动态 · {days} 天{cap}</h2>{tl}</main>"
             f"<script>{JS}</script></body></html>\n")
@@ -482,7 +492,7 @@ def main(argv):
     except (ValueError, AssertionError):
         return usage("--days 要正整数")
     t0 = time.time()
-    projects, events = collect(root, days)
+    projects, events, overview = collect(root, days)
     if events_only:
         for e in events:
             for kind, txt in e["chg"]:
@@ -491,7 +501,7 @@ def main(argv):
     path = os.path.abspath(out) if out else os.path.join(root, "research.html")
     rel = os.path.relpath(root, os.path.dirname(path))
     base = "" if rel == "." else urllib.parse.quote(rel.replace(os.sep, "/")) + "/"
-    write_atomic(path, render(projects, events, sync_state(root), days, base, time.time()))
+    write_atomic(path, render(projects, events, sync_state(root), days, base, time.time(), overview))
     print(f"research.html：{len(projects)} 个研究项目，最近 {days} 天 {len(events)} 条动态，"
           f"{time.time() - t0:.2f}s → {path}")
     return 0

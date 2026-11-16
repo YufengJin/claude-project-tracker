@@ -4,7 +4,7 @@ set -u
 S=$(cd "$(dirname "$0")" && pwd)
 PT="$S/../plugins/project-tracker/skills/project-tracker/scripts/pt.sh"
 T=${KEEP_T:-$(mktemp -d)}; [ -n "${KEEP_T:-}" ] || trap 'rm -rf "$T"' EXIT
-export PROJECT_TRACKER_ROOT="$T/root" PT_HOSTNAME=host-me
+export PROJECT_TRACKER_ROOT="$T/root" PT_HOSTNAME=host-me PT_FLEET_JOBS="$T/no-fleet-jobs"
 mkdir -p "$T/repoA/sub" "$T/repoB" "$T/other"
 unset CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID
 pass=0; fail=0
@@ -22,7 +22,7 @@ check "五个文件 + archive"             '[ -f "$T/root/alpha/charter.md" ] &&
 check "charter Workdir = 当前目录"      'grep -q "^Workdir: $T/repoA$" "$T/root/alpha/charter.md"'
 check "charter Host = 本机"            'grep -q "^Host: host-me$" "$T/root/alpha/charter.md"'
 check "无 {{ 残留"                     '! grep -rq --exclude-dir=.git "{{" "$T/root/alpha"'
-check "INDEX 生成行（含主机、state 一句话）" 'grep -q "^| alpha | 项目 A | 进行中 | 本机 | $D | 刚立项，尚未动手。 |$" "$T/root/INDEX.md"'
+check "INDEX 生成行（算出来的总览）"   'grep -q "^| alpha | 进行中 | $D journal | 0 天 | 0 | — | — | — |$" "$T/root/INDEX.md"'
 check "ACTIVE = alpha"                 '[ "$(cat "$T/root/ACTIVE")" = alpha ]'
 check "journal 首条是新格式标题"        'grep -qxF "## [$D] 决定 | 立项 | 建立项目档案" "$T/root/alpha/journal.md" && grep -q "^Did: *建立项目档案" "$T/root/alpha/journal.md"'
 check "项目是 git 仓、分支 main、已首提交" '[ "$(git -C "$T/root/alpha" symbolic-ref --short HEAD)" = main ] && [ "$(git -C "$T/root/alpha" rev-list --count HEAD)" = 1 ] && [ -z "$(git -C "$T/root/alpha" status --porcelain)" ]'
@@ -144,11 +144,11 @@ n0=$(git -C "$T/root/alpha" rev-list --count HEAD)
 bash "$PT" index alpha "做到一半 | 有竖线" >/dev/null
 check "index 写 state 一句话"          '[ "$(awk "/^## 一句话概括/{f=1;next} f&&NF{print;exit}" "$T/root/alpha/state.md")" = "做到一半 | 有竖线" ]'
 check "index 只替换第一行，不动其他节"   'grep -q "^## 下一步" "$T/root/alpha/state.md" && ! grep -q "刚立项，尚未动手" "$T/root/alpha/state.md"'
-check "INDEX 行更新并转义竖线"          'grep -q "^| alpha | 项目 A | 进行中 | 本机 | $D | 做到一半 ／ 有竖线 |$" "$T/root/INDEX.md"'
+check "INDEX 行更新"                    'grep -q "^| alpha | 进行中 | $D " "$T/root/INDEX.md"'
 check "index 提交了一次 checkpoint"     '[ "$(git -C "$T/root/alpha" rev-list --count HEAD)" = $((n0+1)) ] && [ -z "$(git -C "$T/root/alpha" status --porcelain)" ] && git -C "$T/root/alpha" log -1 --format=%s | grep -q "^checkpoint @host-me: 做到一半"'
-check "index 不动其他行"               'grep -q "^| beta | 项目 B | 进行中 |" "$T/root/INDEX.md"'
+check "index 不动其他行"               'grep -q "^| beta | 进行中 |" "$T/root/INDEX.md"'
 bash "$PT" index beta "全部通过" 已完成 >/dev/null
-check "index 状态同步 charter"         'grep -q "^| beta | 项目 B | 已完成 |" "$T/root/INDEX.md" && grep -q "^Status: 已完成$" "$T/root/beta/charter.md"'
+check "index 状态同步 charter"         'grep -q "^| beta | 已完成 |" "$T/root/INDEX.md" && grep -q "^Status: 已完成$" "$T/root/beta/charter.md"'
 check "已完成排在进行中之后"           '[ "$(grep -n "^| alpha |" "$T/root/INDEX.md" | cut -d: -f1)" -lt "$(grep -n "^| beta |" "$T/root/INDEX.md" | cut -d: -f1)" ]'
 check "已完成项目不再命中 where"       '[ -z "$(cd "$T/repoB" && bash "$PT" where)" ]'
 check "index 非法状态拒绝"             '! bash "$PT" index alpha x 完蛋 2>/dev/null'
@@ -242,7 +242,7 @@ check "html 有总览图：SVG 容器、内嵌数据（先序、父下标、台�
 import json,re,sys; s=open(sys.argv[1]).read()
 d=json.loads(re.search(r"<script type=application/json id=gdata>(.*?)</script>",s,re.S).group(1))
 N=d["nodes"]; ix={n["i"]:k for k,n in enumerate(N)}
-ok=d["slug"]=="rs" and len(N)==s.count("<article id=\"n-")-("n-__ledger" in s) and N[ix["H2"]]["p"]==ix["Q1"] and N[ix["H2"]]["n"]>=1
+ok=d["slug"]=="rs" and len(N)==s.count("<article id=\"n-")-("n-__ledger" in s)-("n-__results" in s) and N[ix["H2"]]["p"]==ix["Q1"] and N[ix["H2"]]["n"]>=1
 ok=ok and all(n["p"]<k for k,n in enumerate(N)) and "H99" not in N[ix["H5"]]["b"]
 sys.exit(0 if ok else 1)
 PY'
@@ -359,13 +359,13 @@ rm -f "$B/tree/H6.md"; git -C "$B" show HEAD:charter.md > "$B/charter.md"; echo 
 check "S5 brief 分叉提示写 tree.html 不用手合" 'grep -q "tree.html 不用手合，pt index 会重新生成" "$(dirname "$PT")/pt.sh"'
 # S6 pt new 名称含 sed 特殊字符
 out=$(bash "$PT" new sedname 'A|B & \1 C/D' "$T/other/x" 2>&1); rc=$?
-check "S6 名称含 | & \\1 照原样写进 charter" '[ $rc -eq 0 ] && [ "$(head -n1 "$T/root/sedname/charter.md")" = "# A|B & \1 C/D" ] && grep -qF "| sedname | A／B & \1 C/D |" "$T/root/INDEX.md"'
+check "S6 名称含 | & \\1 照原样写进 charter" '[ $rc -eq 0 ] && [ "$(head -n1 "$T/root/sedname/charter.md")" = "# A|B & \1 C/D" ] && bash "$PT" list --no-sync | grep -qF "A|B & \1 C/D ｜ Workdir"'
 out=$(bash "$PT" new sedbad "$(printf 'a\nb')" "$T/other/x" 2>&1); rc=$?
 check "S6 sed 处理不了的名称：报错且不留空档案" '[ $rc -ne 0 ] && [ ! -e "$T/root/sedbad" ]'
 # M1 Status 带括号注
 sed -i "s/^Status:.*/Status: 进行中 (探索期)/" "$B/charter.md"
 check "M1 Status「进行中 (探索期)」where 照样命中" '(cd "$T/rbw" && bash "$PT" where) | grep -qx rb'
-check "M1 INDEX 按进行中排序（排在已放弃前）" 'bash "$PT" list --no-sync >/dev/null; [ "$(grep -n "^| rb |" "$T/root/INDEX.md" | cut -d: -f1)" -lt "$(grep -n "^| annot |" "$T/root/INDEX.md" | cut -d: -f1)" ]'
+check "M1 INDEX 状态列按括号前的状态值算" 'bash "$PT" list --no-sync >/dev/null; grep -q "^| rb | 进行中 |" "$T/root/INDEX.md"'
 check "M1 precompact 命中带注的进行中项目" '(cd "$T/rbw" && bash "$PT" precompact </dev/null) | grep -q "项目 rb"'
 # M2 考官卡「未冻结」不算冻结
 sed -i "s/^Updated: .*/Updated: $D   Status: 未冻结（等用户）/" "$B/verifier.md"
@@ -518,7 +518,7 @@ exp=$(printf '%s\n' "rb	H1	del	open	far-box" "ra	H2	verdict	closed/refuted → c
 check "时间线：新增/状态/结论/换父/删除、机器、跨项目按时间倒序、窗口外不算" '[ "$ev" = "$exp" ]'
 out=$(bash "$PT" monitor); HT="$M/research.html"
 check "pt monitor 汇报并重写"            'grep -q "2 个研究项目" <<<"$out" && grep -q "10 条动态" <<<"$out"'
-check "非研究项目不进页面"               '! grep -q "plain" "$HT" && grep -q "href=\"ra/tree.html\"" "$HT" && grep -q "href=\"rb/tree.html\"" "$HT"'
+check "非研究项目不进卡片，只在顶部总览"  '! grep -q "href=\"plain/tree.html\"" "$HT" && grep -q "<td class=sl title=\"[^\"]*\">plain</td>" "$HT" && grep -q "href=\"ra/tree.html\"" "$HT" && grep -q "href=\"rb/tree.html\"" "$HT"'
 check "卡片按最近 tree/ 变动倒序（rb 先）" '[ "$(grep -o "<article class=card><h3><a href=\"r[ab]/" "$HT" | cut -d\" -f2 | tr -d "\n")" = "rb/ra/" ]'
 check "事件链到节点（删除的只到 tree.html）" 'grep -q "href=\"ra/tree.html#H2\"" "$HT" && grep -q "<li><a class=id href=\"rb/tree.html\">H1</a>" "$HT"'
 check "焦点路径：根 → 活跃叶，带标题悬停" 'grep -q "<a class=id href=\"ra/tree.html#Q2\" title=\"甲根二\">Q2</a><span class=sep>›</span><a class=id href=\"ra/tree.html#H1\" title=\"甲一\">H1</a>" "$HT"'
@@ -588,8 +588,8 @@ check "Workdir 不在本机 → 待定位 + 提示" 'grep -q "^Host: 待定位$"
 check "INDEX 一句话写进 state 首行"     '[ "$(awk "/^## 一句话概括/{f=1;next} f&&NF{print;exit}" "$T/old/legacy/state.md")" = "旧的一句话" ] && grep -q "刚立项，尚未动手" "$T/old/legacy/state.md"'
 check "状态不一致时提示"               'grep -q "elsewhere.*状态不一致 INDEX=进行中 charter=暂停" <<<"$out"'
 check "迁移后是 git 仓且干净"           '[ -z "$(git -C "$T/old/legacy" status --porcelain)" ] && git -C "$T/old/legacy" log -1 --format=%s | grep -q "^migrate to 0.4"'
-check "INDEX 重建为新格式"             'grep -q "| 主机 |" "$T/old/INDEX.md" && grep -q "^| legacy | 旧项目 | 进行中 | 本机 | 2026-01-01 | 旧的一句话 |$" "$T/old/INDEX.md"'
-check "迁移提交不算最后更新（取 journal 日期）" 'grep -q "^| elsewhere | 别处项目 | 暂停 | 待定位 | 2026-01-01 |" "$T/old/INDEX.md"'
+check "INDEX 重建为新格式"             'grep -q "| 现在最信的一条 |" "$T/old/INDEX.md" && grep -q "^| legacy | 进行中[^|]* | 2026-01-01 journal |" "$T/old/INDEX.md"'
+check "迁移提交不算最近活动（取 journal 日期）" 'grep -q "^| elsewhere | 暂停 | 2026-01-01 journal |" "$T/old/INDEX.md"'
 n1=$(git -C "$T/old/legacy" rev-list --count HEAD)
 bash "$PT" migrate >/dev/null
 check "migrate 幂等"                   '[ "$(git -C "$T/old/legacy" rev-list --count HEAD)" = "$n1" ] && [ "$(grep -c "旧的一句话" "$T/old/legacy/state.md")" = 1 ] && [ "$(grep -c "^Host:" "$T/old/legacy/charter.md")" = 1 ]'
@@ -611,13 +611,14 @@ check "从 ~ 开会话 auto 静默"                         '[ -z "$(gw "$GH" au
 echo "# INDEX 最后更新不算 autosync 提交"
 AR="$T/asy"
 (export PROJECT_TRACKER_ROOT="$AR" GIT_AUTHOR_DATE="2026-01-02T10:00:00" GIT_COMMITTER_DATE="2026-01-02T10:00:00"
- cd "$T/other" && bash "$PT" new syn "同步项目" "$T/other" >/dev/null && bash "$PT" index syn "旧进展" >/dev/null)
+ cd "$T/other" && bash "$PT" new syn "同步项目" "$T/other" >/dev/null && sed -i "s/^## \[$D\]/## [2026-01-02]/" "$AR/syn/journal.md" &&
+ bash "$PT" index syn "旧进展" >/dev/null)
 echo "改动" >> "$AR/syn/state.md"
 git -C "$AR/syn" -c user.name=pt -c user.email=pt@x commit -qam "autosync @host-me (idle)"
 PROJECT_TRACKER_ROOT="$AR" bash "$PT" list --no-sync >/dev/null
-check "autosync 之后最后更新仍是上次 checkpoint 的日期" 'grep -q "^| syn | 同步项目 | 进行中 | 本机 | 2026-01-02 |" "$AR/INDEX.md"'
+check "autosync 之后最近活动仍是上次 checkpoint 的日期" 'grep -q "^| syn | 进行中[^|]* | 2026-01-02 " "$AR/INDEX.md"'
 PROJECT_TRACKER_ROOT="$AR" bash "$PT" index syn "新进展" >/dev/null
-check "再 checkpoint 就是今天"                          'grep -q "^| syn | 同步项目 | 进行中 | 本机 | $D |" "$AR/INDEX.md"'
+check "再 checkpoint 就是今天"                          'grep -q "^| syn | 进行中 | $D 提交 |" "$AR/INDEX.md"'
 
 echo "# lint（只读体检）"
 LR="$T/lint"; mkdir -p "$T/lw/a" "$T/lw/b" "$LR/.fleet/hosts/far"; echo host-far > "$LR/.fleet/hosts/far/hostname"
@@ -660,7 +661,7 @@ check "本机 Workdir 不存在"                     'grep -q "^gone: workdir-mi
 check "没有焦点也没有下一步"                    'grep -q "^fresh: no-focus: " <<<"$out" && ! grep -q "^big: no-focus" <<<"$out"'
 check "根节点认识加教训超 6 KB"                 'grep -q "^big: tree-root-size: 根 Q1 .*6.8 KB" <<<"$out"'
 check "单节点超 5 KB"                           'grep -q "^big: tree-node-size: 节点 H2 5.9 KB" <<<"$out" && [ "$(grep -c "^big: tree-node-size" <<<"$out")" = 2 ]'
-check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2，state-format [0-9]*，tree-know 1，journal-entry 1，status 0，plan-template [0-9]*$"'
+check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2，state-format [0-9]*，tree-know 1，journal-entry 1，status 0，plan-template [0-9]*，status-tree 0，idle 0，plan-open 0$"'
 check "单个 slug 只查它、不给计数"              'o=$(lt good fresh); grep -q "^fresh:" <<<"$o" && ! grep -q "^共 " <<<"$o"'
 check "未知 slug 也退出 0"                      'lt nope >/dev/null; [ $? -eq 0 ]'
 check "lint 不改任何文件、不提交"               '[ "$(find "$LR" -type f -not -path "*/.git/*" -exec md5sum {} + | sort | md5sum)" = "$sum0" ] && [ -z "$(for p in "$LR"/*/; do git -C "$p" status --porcelain; done)" ]'

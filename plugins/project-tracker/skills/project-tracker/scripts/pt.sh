@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # pt.sh — project-tracker 的入口脚本。档案根目录：${PROJECT_TRACKER_ROOT:-~/.claude/project}
 #
-#   pt.sh list [--no-sync]                     打印索引（中心机先同步全机队）
+#   pt.sh list [--no-sync] [--tsv]             打印算出来的进度总览（中心机先同步全机队）；--tsv 给代理
 #   pt.sh where                                当前目录命中的、Host=本机的进行中项目（slug 一行一个）
 #   pt.sh auto                                 SessionStart hook 用：命中 1 个→brief；多个→提示；0 个→静默；压缩后按会话绑定重新注入
 #   pt.sh precompact                           PreCompact hook 用：让压缩摘要留下还没入档的进展
 #   pt.sh brief <slug>                         按恢复顺序输出简报，把 ACTIVE 设为该 slug，并把本会话绑到它
 #   pt.sh new <slug> "<名称>" [--host H] [workdir ...]   建档（git 仓 + 首次提交）；workdir 默认当前目录
-#   pt.sh index <slug> "<一句话>" [状态]       写一句话（进 state 与 INDEX，不是提交说明）与状态、提交这次 checkpoint、重建 INDEX
+#   pt.sh index <slug> "<一句话>" [状态]       写一句话（进 state，不是提交说明）与状态、提交这次 checkpoint、重建 INDEX
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh lint [<slug> ... | --all]            档案体检：只读、只报告（<slug>: <检查名>: <一句话>），退出码恒为 0；默认 ACTIVE
+#   pt.sh results <slug> [--all]               得到了什么：当前认识第 1 条、已关节点按日期倒序、未关节点的台账行（工程项目：plan 已勾项与已推送）
 #   pt.sh journal-archive <slug>               journal.md 超过 100 KB 时把上月之前的整月条目原样搬到 archive/journal-YYYY-MM.md 并提交
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
@@ -20,8 +21,8 @@
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
 #   pt.sh runs [slug | --wait <run>]           中心机：派活状态 / 等某次派活结束
 #
-# 隔离原则：任何子命令只读写一个 <slug>/ 目录；list 只读各项目 charter 字段与 state 的一句话；
-# monitor 只读各研究项目的 tree/ 与 git 历史，只写档案根的 research.html。
+# 隔离原则：任何子命令只读写一个 <slug>/ 目录；list 只读各项目档案与 git 历史、算出总览（progress.py），
+# 只写档案根的 INDEX.md 与缓存 .cache/；monitor 只读各研究项目的 tree/ 与 git 历史，只写档案根的 research.html。
 set -u
 
 ROOT="${PROJECT_TRACKER_ROOT:-$HOME/.claude/project}"
@@ -209,9 +210,11 @@ last_update() {
 status_of() { field "$1" Status | sed -E 's/[[:space:]（(].*//'; }
 status_rank() { case "$1" in 进行中) echo 1 ;; 暂停) echo 2 ;; 已完成) echo 3 ;; 已放弃) echo 4 ;; *) echo 5 ;; esac; }
 
-# INDEX.md 是生成视图：名称/状态/Host 取 charter，日期取最后一次提交，一句话取 state
+# INDEX.md 是生成视图：算出来的进度总览（progress.py；pt list、research.html 顶部、简报的 INDEX 行同一份数据）。
+# 没有 python3 或它出错时退回旧表：名称/状态/Host 取 charter，日期取最后一次提交，一句话取 state
 render_index() {
   [ -d "$ROOT" ] || return 0
+  command -v python3 >/dev/null && python3 "$HERE/progress.py" index --root "$ROOT" --host "$THIS_HOST" 2>/dev/null && return 0
   local d s st upd sum flag tmp
   tmp="$(mktemp "$ROOT/.INDEX.XXXX")"
   {
@@ -242,16 +245,23 @@ render_monitor() {
 
 cmd_list() {
   [ -d "$ROOT" ] || die "没有 $ROOT（还没有任何项目）"
-  if is_hub && [ "${1:-}" != --no-sync ] && [ -z "${PT_NO_SYNC:-}" ]; then
-    fleet_sync -q --summary
+  local a nosync="${PT_NO_SYNC:-}" tsv=""
+  for a in "$@"; do case "$a" in --no-sync) nosync=1 ;; --tsv) tsv=1 ;; *) die "用法: pt.sh list [--no-sync] [--tsv]" ;; esac; done
+  if is_hub && [ -z "$nosync" ]; then
+    if [ -n "$tsv" ]; then fleet_sync -q >/dev/null 2>&1; else fleet_sync -q --summary; fi
   fi
+  if command -v python3 >/dev/null; then
+    render_index
+    python3 "$HERE/progress.py" list ${tsv:+--tsv} --root "$ROOT" --host "$THIS_HOST" && return
+  fi
+  [ -z "$tsv" ] || die "pt list --tsv 要 python3"
   render_index
   cat "$ROOT/INDEX.md"
   echo
   local d s
   for d in "$ROOT"/*/; do
     s="$(basename "$d")"
-    [ -f "$d/charter.md" ] && printf '  %-24s @%-14s Workdir: %s\n' "$s" "$(host_label "$s")" "$(field "$s" Workdir)"
+    [ -f "$d/charter.md" ] && printf '  %-24s @%-14s %s ｜ Workdir: %s\n' "$s" "$(host_label "$s")" "$(sed -n '1s/^# *//p' "$d/charter.md")" "$(field "$s" Workdir)"
   done
 }
 
@@ -472,6 +482,14 @@ verifier_brief() {
   esac
 }
 
+cmd_results() {
+  local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh results <slug> [--all]"
+  [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
+  shift
+  command -v python3 >/dev/null || die "pt results 要 python3"
+  python3 "$HERE/results.py" "$ROOT/$SLUG" "$@"
+}
+
 cmd_tree() {
   local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]"
   [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
@@ -606,8 +624,8 @@ cmd_research() {
 
 cmd_index() {
   local SLUG="${1:-}" SUMMARY="${2:-}" STATUS="${3:-}"
-  [ -n "$SLUG" ] && [ -n "$SUMMARY" ] || die "用法: pt.sh index <slug> \"<一句话>\" [进行中|暂停|已完成|已放弃]（一句话进 state 与 INDEX，不是提交说明）"
-  case "$SUMMARY" in *$'\n'*|*$'\r'*) die "一句话不能有换行（它写进 state.md「一句话概括」的一行，也是 INDEX 的一格）" ;; esac
+  [ -n "$SLUG" ] && [ -n "$SUMMARY" ] || die "用法: pt.sh index <slug> \"<一句话>\" [进行中|暂停|已完成|已放弃]（一句话写进 state，不是提交说明）"
+  case "$SUMMARY" in *$'\n'*|*$'\r'*) die "一句话不能有换行（它写进 state.md「一句话概括」的一行）" ;; esac
   [ -n "${SUMMARY//[[:space:]]/}" ] || die "一句话不能是空白"
   [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
   if [ -n "$STATUS" ]; then
@@ -687,7 +705,8 @@ cmd_migrate() {
   tar czf "$bk" -C "$ROOT" --exclude=./.backup . || die "备份失败"
   echo "[project-tracker] 已备份到 $bk"
   local oldindex=""
-  [ -f "$ROOT/INDEX.md" ] && ! grep -q '| 主机 |' "$ROOT/INDEX.md" && oldindex="$ROOT/INDEX.md"
+  # 0.3 的 INDEX：| Slug | 名称 | 状态 | 最后更新 | 一句话 |（0.4 起加了主机列，0.8 起是算出来的总览，都不是它）
+  [ -f "$ROOT/INDEX.md" ] && grep -q '^| Slug | 名称 | 状态 | 最后更新 | 一句话 |' "$ROOT/INDEX.md" && oldindex="$ROOT/INDEX.md"
   local d s h row isum ist notes
   for d in "$ROOT"/*/; do
     s="$(basename "$d")"
@@ -726,6 +745,7 @@ case "${1:-}" in
   index)    shift; cmd_index "$@" ;;
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
+  results)  shift; cmd_results "$@" ;;
   lint)     shift; cmd_lint "$@" ;;
   journal-archive) shift; cmd_journal_archive "$@" ;;
   migrate)  cmd_migrate ;;
@@ -735,5 +755,5 @@ case "${1:-}" in
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,23p' "$0"; exit 1 ;;
+  *)        sed -n '2,24p' "$0"; exit 1 ;;
 esac

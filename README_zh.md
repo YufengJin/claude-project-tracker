@@ -61,7 +61,7 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 
 ```
 ~/.claude/project/            # 可用 PROJECT_TRACKER_ROOT 覆盖
-├── INDEX.md                  # 生成的索引：slug、名称、状态、主机、最后提交日期、一句话
+├── INDEX.md                  # 算出来的进度总览（与 pt list 同一份）
 ├── ACTIVE                    # 最近一次 brief 的 slug，仅在同目录多项目时做平局裁决
 ├── FLEET                     # 仅中心机：每行一个节点的 ssh 别名（私有，不发布）
 └── <slug>/                   # 一个 git 仓；一次 checkpoint 一个提交
@@ -72,7 +72,7 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 
 - `Workdir` 可写多个目录，一个项目可以横跨两个仓库。`Host` 写这些路径在哪台机器上；`where` / `auto` 只认
   Host 是本机的项目。
-- `INDEX.md` 由档案生成（charter 字段、最后提交日期（迁移提交不算）、state「一句话概括」首行），不要手改。
+- `INDEX.md` 是算出来的进度总览（状态与矛盾/停滞标记、最近活动与来源、距今、等用户、进度、在跑、「当前认识」第 1 条），不要手改。
 - 一个会话只碰一个 `<slug>/`。`list` 只读 `INDEX.md`。其他项目的文件不打开、不引用、不总结，即使同一个 Workdir。
   切项目就是一次 `resume`。
 - 迁移原来放在仓库里的档案：把 `.claude/project/<slug>` 拷到 `~/.claude/project/`，在 charter 的 `Slug:` 下面
@@ -82,7 +82,8 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 
 ```bash
 PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
-bash $PT list                                  # INDEX + 每个项目的主机与 Workdir（中心机先同步）
+bash $PT list [--tsv]                          # 算出来的总览 + 每个项目的主机、名称与 Workdir（中心机先同步）
+bash $PT results <slug> [--all]                # 得到了什么：已关节点按日期、未关节点的台账行、plan 与已推送
 bash $PT where                                 # 当前目录命中的、本机的进行中项目
 bash $PT auto                                  # SessionStart hook 跑的
 bash $PT brief <slug>                          # 按恢复顺序输出简报，设 ACTIVE

@@ -144,7 +144,8 @@ def body(opts):
 
 def main(argv):
     if argv[:1] == ["--check"]:
-        return 0 if len(argv) > 1 and os.path.isfile(argv[1]) and lint.state_ok(lint.read(argv[1])) else 1
+        return 0 if len(argv) > 1 and os.path.isfile(argv[1]) and lint.state_ok(
+            lint.read(argv[1]), os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(argv[1])), "tree"))) else 1
     opts, i = {}, 0
     while i + 1 < len(argv):
         opts[argv[i]] = argv[i + 1]

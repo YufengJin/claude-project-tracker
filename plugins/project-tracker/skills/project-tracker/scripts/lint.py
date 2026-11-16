@@ -14,10 +14,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tree  # noqa: E402  研究树节点的解析与 pt tree 同一套
 import journal as jmod  # noqa: E402  journal 条目切分与 journal-archive 同一套
+import progress  # noqa: E402  最近活动、进度与 pt list 同一套
 
 CHECKS = ("state-stale", "pending-stale", "template", "journal-size", "state-size",
           "host", "workdir-missing", "no-focus", "tree-root-size", "tree-node-size",
-          "state-format", "tree-know", "journal-entry", "status", "plan-template")
+          "state-format", "tree-know", "journal-entry", "status", "plan-template",
+          "status-tree", "idle", "plan-open")
 STATE_LAG_DAYS = 2          # state 的 Updated 比 journal 最新条目早这么多天及以上
 PENDING_DAYS = 7            # 待拍板 / 等用户 里的日期超过这么多天
 JOURNAL_MAX = 100 * 1024
@@ -30,8 +32,9 @@ FULL_DATE = re.compile(r"(20\d\d)-(\d{1,2})-(\d{1,2})")
 SHORT_DATE = re.compile(r"(?<![\d./-])(0[1-9]|1[0-2])-([0-2]\d|3[01])(?![\d])")
 PLACEHOLDER = re.compile(r"<[^<>\n{}!]{2,}>")
 TEMPLATED = ("charter", "state", "decisions")
-# state 的固定小节（按此顺序）；合格 = 有「焦点」与「下一步」、没有名单外的二级小节、全文不超过 STATE_FIXED_MAX
-STATE_SECTIONS = ("一句话概括", "焦点", "下一步", "待拍板", "线程", "入口与产物", "快速启动", "别再试")
+# state 的固定小节（按此顺序）；合格 = 有「焦点」与「下一步」、没有名单外的二级小节、全文不超过 STATE_FIXED_MAX。
+# 「当前认识」只给没有研究树的项目（研究项目的在树的根节点）
+STATE_SECTIONS = ("一句话概括", "焦点", "下一步", "待拍板", "线程", "入口与产物", "快速启动", "别再试", "当前认识")
 STATE_REQUIRED = ("焦点", "下一步")
 STATE_FIXED_MAX = 3 * 1024
 KNOW_MAX = 3 * 1024         # 任一问题节点的「当前认识」
@@ -40,6 +43,7 @@ STATUS_VALUES = ("进行中", "暂停", "已完成", "已放弃")
 APPEND_HEAD = re.compile(r"更新|历史|已过时")
 # 0.6.10 及以前的 plan 模板占位：旧项目的 plan 没填也认得出
 LEGACY_PLAN_PLACEHOLDERS = ("<一段：整体思路和顺序为什么这样排>", "<当前步骤>", "<可能翻车的地方和预案>")
+LEGACY_CHARTER_PLACEHOLDERS = ("<可判定的条件。打勾必须对应 journal 里的证据条目>",)
 
 
 def read(path):
@@ -108,17 +112,19 @@ def state_name(head):
     return None
 
 
-def state_check(raw):
+def state_check(raw, has_tree=False):
     """state.md 按固定小节的体检：(缺的必需节, 名单外的节, 超出 3 KB 的字节数)。三者都空才合格。"""
     heads = [h for h, _ in sections(tree.strip_comments(raw))]
     names = [state_name(h) for h in heads]
+    if has_tree:
+        names = [None if n == "当前认识" else n for n in names]
     missing = [n for n in STATE_REQUIRED if n not in names]
     extra = [h[3:].strip() for h, n in zip(heads, names) if n is None]
     return missing, extra, max(0, len(raw.encode()) - STATE_FIXED_MAX)
 
 
-def state_ok(raw):
-    missing, extra, over = state_check(raw)
+def state_ok(raw, has_tree=False):
+    missing, extra, over = state_check(raw, has_tree)
     return not missing and not extra and not over
 
 
@@ -148,6 +154,7 @@ def template_placeholders(tpl_dir):
     for name in TEMPLATED:
         raw = read(os.path.join(tpl_dir, name + ".md"))
         out[name] = [p for p in dict.fromkeys(PLACEHOLDER.findall(raw)) if re.search(r"\w", p)]
+    out["charter"] += list(LEGACY_CHARTER_PLACEHOLDERS)
     out["plan"] = plan_placeholders(tpl_dir)
     return out
 
@@ -231,7 +238,7 @@ def lint_one(slug, d, ctx):
 
     # state 固定小节
     if os.path.isfile(os.path.join(d, "state.md")):
-        missing, extra, over = state_check(state_raw)
+        missing, extra, over = state_check(state_raw, os.path.isdir(os.path.join(d, "tree")))
         why = ([f"缺 {'、'.join(missing)}"] if missing else []) + \
               ([f"多了 {short('、'.join(extra), 60)}"] if extra else []) + \
               ([f"超 {kb(STATE_FIXED_MAX)} 上限 {over} 字节"] if over else [])
@@ -255,6 +262,18 @@ def lint_one(slug, d, ctx):
         left = plan_is_template(d, ctx["placeholders"]["plan"])
         if left:
             add("plan-template", f"plan.md 还是模板（{short('、'.join(left), 40)}）：写成清单 - [ ] 步骤 → 验证：命令或判据")
+
+    # 进度：状态与研究树、活动、plan 对不上（与 pt list 同一份数据）
+    if charter:
+        r = progress.project_row(d, ref=today, me=host)
+        st = r["status"]
+        if r["contra"]:
+            ids = r["active"]
+            add("status-tree", f"状态「{st}」，但研究树还有 {len(ids)} 个 active 节点（{short('、'.join(ids), 40)}）：关掉或 park 它们，或改状态")
+        if r["idle"]:
+            add("idle", f"进行中，但最近活动 {r['act']}（{r['act_src']}）已过 {r['days']} 天：还在做就 checkpoint，不做了就改状态")
+        if st == "已完成" and r["plan_open"]:
+            add("plan-open", f"已完成，但 plan.md 还有 {r['plan_open']} 个未勾项（共 {r['plan'][1]} 项）：勾上、删掉或注明不做")
 
     # 研究树
     names = [f for f in os.listdir(tdir) if tree.NODE_FILE_RE.match(f)] if os.path.isdir(tdir) else []

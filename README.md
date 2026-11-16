@@ -67,7 +67,7 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 
 ```
 ~/.claude/project/            # override with PROJECT_TRACKER_ROOT
-├── INDEX.md                  # generated: slug, name, status, host, last commit, one-liner
+├── INDEX.md                  # generated progress overview (same data as pt list)
 ├── ACTIVE                    # slug of the last brief; only a tie-breaker when a dir has several projects
 ├── FLEET                     # hub only: one ssh alias per node (private, never published)
 └── <slug>/                   # a git repository; each checkpoint is one commit
@@ -78,8 +78,8 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 
 - `Workdir` may list several directories, so one project can span two repositories. `Host` says which
   machine those paths live on; `where` / `auto` only match projects whose `Host` is this machine.
-- `INDEX.md` is rebuilt from the archives (charter fields, last commit date not counting the migration commit, the first line of the
-  state's one-liner section); never edit it by hand.
+- `INDEX.md` is a computed progress overview (status with contradiction / idle flags, last activity and its source, days since,
+  pending user decisions, progress, running fleet jobs, the first item of "current understanding"); never edit it by hand.
 - A session touches exactly one `<slug>/`. `list` reads only `INDEX.md`. Other projects' files are never
   opened, quoted or summarised, even when they share a `Workdir`. Switching projects is a `resume`.
 - Move an existing in-repo archive by copying `.claude/project/<slug>` into `~/.claude/project/` and
@@ -89,7 +89,8 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 
 ```bash
 PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
-bash $PT list                                  # INDEX plus each project's host and Workdir (hub: syncs first)
+bash $PT list [--tsv]                          # computed overview plus each project's host, name, Workdir (hub: syncs first)
+bash $PT results <slug> [--all]                # what a project found: closed nodes by date, open ledger rows, plan / pushed
 bash $PT where                                 # in-progress local projects that claim $PWD
 bash $PT auto                                  # what the SessionStart hook runs
 bash $PT brief <slug>                          # recovery-order brief, sets ACTIVE

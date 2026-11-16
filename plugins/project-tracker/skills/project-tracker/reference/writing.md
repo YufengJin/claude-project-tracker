@@ -31,7 +31,8 @@ Open:     新冒出来的问题
 ## state.md
 
 - 小节固定（见 SKILL.md「快照写什么」），名字照写；`## 待拍板（2 项）` 这样带括号注也认。不合格就走旧版简报，`pt lint` 会说缺哪节、多了哪节。
-- 「一句话概括」的第一行就是 INDEX 里的一句话，`pt index` 会改写它，`Updated:` 行也由它写。
+- 「一句话概括」的第一行由 `pt index` 改写（`pt list --tsv` 的 summary 列、research.html 卡片用它），`Updated:` 行也由它写。
+- 没有研究树的项目可以加 `## 当前认识`（可选，放最后）：现在相信什么，不超过 15 条，重写不追加；第 1 条进 `pt list`。
 - 「焦点」里写的 `Q12` / `H34` 这类 ID 就是焦点链的终点：简报和 `pt tree` 据此取根到它这条链上的当前认识。
 - 全文不超过 3 KB：每次重写，不追加。做完的事进 journal，旧内容挪进 `archive/state-YYYY-MM-DD.md`。
 - 「快速启动」要能直接复制运行。
@@ -48,15 +49,15 @@ Open:     新冒出来的问题
 
 - `Workdir`：一个或多个绝对路径，空格分隔。SessionStart hook 只在当前目录落在其中之一时才加载这个项目。项目跨仓库就写多个。
 - `Host`：代码和硬件所在机器的 hostname，`Workdir` 按那台机器解释。立项时自动填本机；代码在别处用 `pt new --host`。`待定位` 表示迁移时判断不出来，要手工改。
-- `Status`：只取 `进行中` `暂停` `已完成` `已放弃`，备注写到 state（带括号注的 `pt lint` 会报；脚本仍按注前面的状态值算）。用 `pt.sh index <slug> "<一句话>" <状态>` 改，会同步 INDEX；第二个参数是 INDEX 的一句话，不是提交说明，不能有换行。
-- 完成标准打勾的唯一依据是 journal 里有对应证据条目。
+- `Status`：只取 `进行中` `暂停` `已完成` `已放弃`，备注写到 state（带括号注的 `pt lint` 会报；脚本仍按注前面的状态值算）。用 `pt.sh index <slug> "<一句话>" <状态>` 改，会同步 INDEX；第二个参数是 state 的一句话，不是提交说明，不能有换行。
+- 完成标准只是目标陈述，不打勾、不当进度；进度看 plan 勾选（`pt list`）。
 
 ## verifier.md、experiments.md 与 tree/（研究项目）
 
 - `verifier.md`（考官卡）：拿什么判对错、真值哪来、指标与聚合怎么定义、判定依据；不知道写「未知」。状态行写 `Status: 已冻结（…）`（状态值以「冻结」或「已冻结」开头；「未冻结」「待冻结」不算）之后，`pt brief` 只打印状态行与「指标与聚合定义」「判定依据」两节。
 - 档案根的 `.ignore`（`tree.html`）与 `.gitattributes`（`tree.html -diff`）由 pt 补上，让搜索跳过、git diff 不展开这个生成的大文件；不用手改。
 - `experiments.md`（台账）：一行一个实验，`id | node | 问题 / 对照 | 读数 | 运行 | 结论 | 证据`。`node` 填研究树节点 ID，多个用逗号分隔，没有就空着；单元格里的竖线写 `\|`。可以分多个 `## ` 小节、多张表；表头有 `node`（或「节点」）列的表才会挂到节点上；注释与代码块里的表格行不算。行不删：确认阶段可以先占一行（读数空着）、跑完回填，更正留痕。
-- 确认阶段「占行后先提交」：`git -C <档案> add tree/<ID>.md experiments.md && git commit -m "占行 <实验 id>"`。不用 `pt index`，它会改 state 的一句话和 INDEX。
+- 确认阶段「占行后先提交」：`git -C <档案> add tree/<ID>.md experiments.md && git commit -m "占行 <实验 id>"`。不用 `pt index`，它会改 state 的一句话。
 - `tree/<ID>.md`（研究树节点），例：
 
 ```
@@ -84,7 +85,7 @@ verdict: refuted
 ## INDEX.md
 
 ```
-| Slug | 名称 | 状态 | 主机 | 最后更新 | 一句话 |
+| 项目 | 状态 | 最近活动 | 距今 | 等用户 | 进度 | 在跑 | 现在最信的一条 |
 ```
 
-生成视图，不手编：名称取 charter 标题，状态取 `Status`，主机取 `Host`（本机显示"本机"），日期取最后一次提交（迁移提交不算；只有迁移提交时取 journal 最后一条的日期），一句话取 state「一句话概括」首行。`pt new` / `pt index` / `pt list` / 同步都会重建它。
+算出来的进度总览，不手编（`scripts/progress.py`；`pt list`、research.html 顶部、简报的 INDEX 行同一份数据，按各项目 HEAD 与文件 mtime 缓存在 `<档案根>/.cache/`）。各列口径见 SKILL.md 的 `pt list`；要让它算得出，只靠这几处手写约定：待拍板每条以 `[待用户 MM-DD]` 开头、journal 新格式标题（运维条目不算活动）、plan 勾选、「当前认识」第 1 条。`pt new` / `pt index` / `pt list` / 同步都会重建它。

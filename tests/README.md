@@ -5,6 +5,8 @@
 夹具 charter 的 `Workdir: {{WORKDIR}}` 由 run.sh 替换成运行目录，并把 `PROJECT_TRACKER_ROOT` 指向夹具的 `.claude/project`，
 这样全局根就是夹具，hook 和 pt.sh 都读它。
 
+`progress.sh` 不调模型，测算出来的总览（最近活动的来源与排除、合并后的历史、跨年、只认行首的待用户标签、截断、重开）、`pt results`、lint 的三项进度检查与 tree.html 结果页。
+
 `unit.sh` 不调模型，直接测 pt.sh 的每个子命令和隔离规则（无关目录静默、多命中只列 slug、brief 不含其他项目），几秒跑完。
 研究树部分用合成样例测 `tree.py` 与 brief / index / research 的集成（多根、多节点挂接、转义竖线、悬空 parent/by/node、
 成环、`--blind` 不泄露认识与兄弟、tree.html 转义且无外部资源、渲染失败不阻断提交）。`KEEP_T=<空目录>` 可保留临时档案查看。
@@ -27,7 +29,7 @@ Claude Code 用 `claude -p --model <id>`，Codex 用 `codex exec`，两者都以
 
 - list：读 INDEX 列出，不展开、不写文件。
 - resume：跑 pt.sh brief 或按顺序读文件，≤5 行汇报，ACTIVE 指向该 slug，不改代码。
-- checkpoint：journal 只追加（旧条目不变），Result 带命令与输出，state 重写且 ≤100 行，plan/charter 打勾有证据，INDEX 日期更新，decisions 无架构决策则不动。
+- checkpoint：journal 只追加（旧条目不变），Result 带命令与输出，state 重写且 ≤100 行，plan 打勾有证据，INDEX 日期更新，decisions 无架构决策则不动。
 - new：先读 INDEX；五个文件 + INDEX 行 + ACTIVE；journal 首条 `Did: 建立项目档案`；用户没答的写待定，不替用户猜。
 
 2026-09-08 在 ws02 上用 opus、fable、codex(gpt-6-astra) 各跑四个场景，12/12 通过；

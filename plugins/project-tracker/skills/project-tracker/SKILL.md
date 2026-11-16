@@ -15,13 +15,13 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 
 ```
 ~/.claude/project/
-├── INDEX.md        # 生成的索引（pt 维护，不手改）：slug、名称、状态、主机、最后更新、一句话
+├── INDEX.md        # 算出来的进度总览（pt 维护，不手改；与 pt list 同一份）
 ├── ACTIVE          # 最近一次 brief 的 slug，仅作多项目同目录时的平局裁决
 ├── research.html   # 全局研究监控（pt monitor 生成，不在任何项目仓里）
 └── <slug>/          # git 仓
     ├── charter.md  # 目标、完成标准、边界、验证方法、Workdir、Host。写一次，极少改
     ├── plan.md     # 工程项目：步骤清单。研究项目不要（前沿就是计划）
-    ├── state.md    # 快照：固定小节，≤3 KB，每次重写；「一句话概括」首行进 INDEX
+    ├── state.md    # 快照：固定小节，≤3 KB，每次重写
     ├── journal.md  # 只追加，一会话一条；超 100 KB 时 pt journal-archive 按月搬到 archive/
     ├── decisions.md# 只追加的 ADR
     ├── verifier.md # 研究项目：考官卡（拿什么判对错），用户确认后冻结
@@ -45,14 +45,15 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 
 | 命令 | 作用 |
 |---|---|
-| `pt list` | 打印 INDEX，每个 slug 附主机与 Workdir |
+| `pt list [--tsv]` | 算出来的进度总览（同 INDEX.md 与 research.html 顶部），每个 slug 再附主机、名称与 Workdir；`--tsv` 给代理。列：状态（暂停/已放弃/已完成但树上还有 active 标「⚠矛盾」，进行中 14 天没活动标「⚠停滞」）、最近活动与来源（提交、journal 非运维条目、节点状态变化取最晚；autosync、合并、批量迁移的提交不算）、距今天数、等用户（待拍板里 `[待用户 MM-DD]` 的条数与最老天数，旧格式「—」）、进度（研究 active / 已关；工程 plan 勾选）、在跑（本机 fleet 任务）、现在最信的一条（根节点或 state「当前认识」第 1 条）。排序：等用户 > 停滞 > 矛盾 > 最近活动。算不出的显示「—」 |
 | `pt where` | 当前目录命中的、Host 是本机的进行中项目（Workdir 写成 `~`、`/` 或 `~` 的上级目录的一律不算命中） |
 | `pt brief <slug>` | 按恢复顺序打印简报、设 ACTIVE，并把本会话绑到这个项目 |
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
-| `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话进 INDEX，不是提交说明） |
+| `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话写进 state，不是提交说明） |
 | `pt research <slug>` | 研究项目：加考官卡 `verifier.md`、实验台账 `experiments.md` 与研究树根节点 `tree/Q1.md`（已有的不动） |
+| `pt results <slug> [--all]` | 得到了什么：「当前认识」第 1 条 → 已关节点按日期倒序（`日期 ID verdict 结论首句 [台账 id]`，日期取结论首句里写的，没写标「入档」即变成 closed 的那次提交）→ 挂在未关节点上的台账行；工程项目列 plan 已勾项与 `[已推送 <commit>]` 线程。默认不超过 4 KB，`--all` 全量 |
 | `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文（含焦点链上各问题节点的当前认识）、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
-| `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 不合格（缺哪节、多了哪节、超多少）或落后 journal、待拍板超过 7 天、模板占位没填、工程项目 plan 还是模板、Status 不是规范取值、journal 或新格式条目超限、问题节点当前认识超 3 KB 或有「更新」「历史」类追加小节、Host 不是规范主机名、本机 Workdir 不存在、研究树根或节点过大。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE |
+| `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 不合格（缺哪节、多了哪节、超多少）或落后 journal、待拍板超过 7 天、模板占位没填、工程项目 plan 还是模板、Status 不是规范取值、journal 或新格式条目超限、问题节点当前认识超 3 KB 或有「更新」「历史」类追加小节、Host 不是规范主机名、本机 Workdir 不存在、研究树根或节点过大、状态为暂停/已放弃/已完成但树上还有 active 节点、进行中但 14 天没活动、已完成但 plan 还有未勾项。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE |
 | `pt journal-archive <slug>` | journal.md 超过 100 KB 时，把上月之前的整月条目原样搬到 `archive/journal-YYYY-MM.md`（认不出日期的旧条目进 `archive/journal-early.md`），核对条数与字节数守恒后提交，顶部留一行说明 |
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html` 与各 `tree.html` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
@@ -82,6 +83,7 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 | `## 入口与产物` | 只列现行的仓库、目录、容器、页面 |
 | `## 快速启动` | 能直接复制运行的命令 |
 | `## 别再试` | 可选，不超过 10 行 |
+| `## 当前认识` | 可选，只给没有研究树的项目：现在相信什么，不超过 15 条，重写不追加；第 1 条进 `pt list` |
 
 `Updated:` 行由 `pt index` 写当天日期。
 
@@ -128,17 +130,17 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 ### checkpoint：这一步是全部价值所在
 
-一次会话干了活却没 checkpoint，对未来等于没发生。**主动提议，不等用户开口。**触发点：plan 一步完成、完成标准翻绿、发现死路、要 `/compact` 或结束会话前。
+一次会话干了活却没 checkpoint，对未来等于没发生。**主动提议，不等用户开口。**触发点：plan 一步完成、完成标准达到、发现死路、要 `/compact` 或结束会话前。
 
 写入顺序（不可重建的先写）：
 
 1. **补 experiments.md**（研究项目）：本段做过的实验各一行或补读数与结论；有研究树的，同步改动到的节点（status、verdict、结论），**重写**受影响问题节点的「当前认识」。然后**追加 journal**（新格式标题）。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。
 2. **重写 state**（固定小节）。失败的路：工程项目进「别再试」；研究项目写进那个节点的 `## 结论`，「别再这样做」写进根的 `## 教训`。
-3. **更新 plan**（工程项目，若变）：做完的步骤改成 `[x MM-DD]` 加证据路径。
+3. **更新 plan**（工程项目，若变）：做完的步骤改成 `[x MM-DD]` 加证据路径。plan 勾选是 `pt list` 的进度；charter 的完成标准只是目标陈述，不打勾、不当进度。
 4. **追加 decisions**：架构级选择、方向改变、charter 范围变化都写。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
 5. `pt index <slug> "<一句话>" [状态]`：写 state 的一句话、提交、重建 INDEX。项目做完或放弃在这里给状态。
 
-完成标准打勾的唯一依据是 journal 里有对应证据条目。同一段上下文里再次 checkpoint 只改写本段那条 journal；上下文压缩过就另起一条，压缩前那条不再动。
+同一段上下文里再次 checkpoint 只改写本段那条 journal；上下文压缩过就另起一条，压缩前那条不再动。
 
 ## 多机：一台中心机管全机队（可选）
 
@@ -152,12 +154,12 @@ brief 出现"分叉"时，两边各有对方没有的 checkpoint：先 `git merg
 
 研究常常不是一条直线：一个问题拆出几个假设，假设被否掉就回到问题换一个。研究树把这条谱系写下来，让新会话一眼看到哪些分支还活着、哪些关了、为什么关。
 
-- 一节点一文件 `tree/<ID>.md`（文件名只能是 `Q<n>.md` / `H<n>.md`，别的文件脚本忽略并告警）：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（一个 ID；根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded | abandoned`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。任何问题节点都可以有 `## 当前认识`：这个问题下现在相信什么、依据哪几行实验，每次重写，不超过 15 条或 3 KB，不加「更新」「历史」小节；根节点的只放跨分支的认识，另有 `## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
+- 一节点一文件 `tree/<ID>.md`（文件名只能是 `Q<n>.md` / `H<n>.md`，别的文件脚本忽略并告警）：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（一个 ID；根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded | abandoned`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。任何问题节点都可以有 `## 当前认识`：这个问题下现在相信什么、依据哪几行实验，每次重写，不超过 15 条或 3 KB，不加「更新」「历史」小节；第 1 条写对着考官主分的最好成绩与门槛，用的不是主分就写明是什么尺（`pt list` 与 `pt results` 原样显示它）；根节点的只放跨分支的认识，另有 `## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
 - 台账 `experiments.md` 的 `node` 列填这行实验判的节点（可多个）。读数只在台账，节点只引用实验 id。行不删：可以先占行、跑完回填读数，更正留痕。
 - `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、焦点链（根 → state「焦点」写的节点；没写就取进行中的叶节点）上其他问题节点的当前认识、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点或行列数不对、成环、frontmatter 写错、被忽略的文件、合并冲突标记）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别（其中的 `[[ID]]` 换成 `[[…]]`）、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意——所以问题节点的判别不写候选与排名。根的约束里 `[[Q5]]` 引用了另一个根时，那个根的约束也一并给。
-- 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，默认是交互式总览图（左→右的树，形状分问题与假设，填充与图标分状态与 verdict；缩放平移、点节点看详情、收起子树、「只看活着」把全关的子树收成一个桩），可切到可折叠的列表；右侧是节点详情与挂接的台账行。旧排版的 `pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
+- 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，列表里已关节点标题下有 verdict 与结论首句，另有「结果」页（与 `pt results` 同一份数据）；默认是交互式总览图（左→右的树，形状分问题与假设，填充与图标分状态与 verdict；缩放平移、点节点看详情、收起子树、「只看活着」把全关的子树收成一个桩），可切到可折叠的列表；右侧是节点详情与挂接的台账行。旧排版的 `pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
 - `tree.html` 是派生物：合并冲突里不用手合，`pt index` 会重新生成并收下；别的文件还留着冲突标记时 `pt index` 拒绝提交。`pt research` 与 `pt index` 会在档案根补上 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 搜索跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它），已有的行不重复加。
-- 跨项目看研究进展：打开档案根的 `research.html`（`pt monitor` 生成；`pt index` 研究项目后、中心机每次 sync 后自动重写，失败只告警）。每个研究项目一张卡片（节点状态计数、焦点路径即每个 active 叶节点的根→节点链、告警数），点进各自的 `tree.html`；下面是最近 14 天的节点变化（新增、status / verdict 变化、换父、删除，取自各档案 git 历史与提交所在机器）。它不在任何项目仓里，不提交。要在别的设备上看：`pt serve install`（见 README「在别的设备上看」）。
+- 跨项目看研究进展：打开档案根的 `research.html`（`pt monitor` 生成；`pt index` 研究项目后、中心机每次 sync 后自动重写，失败只告警）。顶部是全部项目的进度总览（同 `pt list`），下面每个研究项目一张卡片（节点状态计数、焦点路径即每个 active 叶节点的根→节点链、告警数），点进各自的 `tree.html`；下面是最近 14 天的节点变化（新增、status / verdict 变化、换父、删除，取自各档案 git 历史与提交所在机器）。它不在任何项目仓里，不提交。要在别的设备上看：`pt serve install`（见 README「在别的设备上看」）。
 - 没有 `tree/` 的档案一切照旧；旧台账没有 `node` 列也照常解析。字段细节见 [reference/writing.md](reference/writing.md)。
 
 ## 写作规则

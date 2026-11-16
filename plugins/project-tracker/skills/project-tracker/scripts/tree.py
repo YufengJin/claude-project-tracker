@@ -912,9 +912,14 @@ def tree_ul(t, tops):
             s, v = st_cls(n)
             cls = f"s-{s}" + (f" v-{v}" if v else "")
             caret = '<button class="caret" aria-label="折叠"></button>' if kids else '<span class="caret none"></span>'
+            cs = ""
+            if n["status"] == "closed":
+                fs = first_sentence(section(n, "结论"))
+                cs = (f'<div class=cs title="{esc(fs)}"><span class="b v-{v or "unknown"}">{esc(n["verdict"] or "?")}</span> '
+                      f'{esc(fs.replace("**", "")) or "(无结论)"}</div>')
             out.append(f'<li data-id="{esc(i)}" data-status="{s if s != "unknown" else "other"}">{caret}'
                        f'<a class="n {cls}" href="#{esc(i)}" title="{esc(i)} {esc(n["title"])}"><span class="dot"></span>'
-                       f'<b>{esc(i)}</b> {esc(n["title"])}</a>')
+                       f'<b>{esc(i)}</b> {esc(n["title"])}</a>{cs}')
             if kids:
                 out.append("<ul>")
                 stack.append(None)
@@ -943,7 +948,8 @@ def graph_data(t):
         s, v = st_cls(n)
         near = {i, n["parent"], *t.children[i]}
         refs = sorted({x for x in REF_RE.findall(strip_comments(n["body"])) if x in t.nodes and x not in near}, key=id_key)
-        nodes.append({"i": i, "t": n["title"][:300], "p": p, "s": s, "v": v, "S": n["status"][:40], "V": n["verdict"][:40],
+        c = first_sentence(section(n, "结论")).replace("**", "") if n["status"] == "closed" else ""
+        nodes.append({"i": i, "t": n["title"][:300], "c": c, "p": p, "s": s, "v": v, "S": n["status"][:40], "V": n["verdict"][:40],
                       "n": len(t.rows_of[i]), "b": [b for b in n["by"] if b in t.nodes and b != i], "r": refs})
     doc = json.dumps({"slug": t.slug, "nodes": nodes}, ensure_ascii=False, separators=(",", ":"))
     return doc.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
@@ -993,6 +999,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;ba
 .tw{overflow-x:auto;margin:6px 0}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid var(--line);padding:3px 6px;vertical-align:top;text-align:left}
 th{background:var(--hl)}td{min-width:3em;max-width:36em}article,td{overflow-wrap:anywhere}
 .warn{color:var(--warnc)}ul.plain{padding-left:18px}
+nav .cs{margin:0 0 3px 38px;font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}nav .cs .b{font-size:11px;padding:0 5px}
+li.dim>.cs{opacity:.45}article .cs1{margin:-4px 0 10px;color:var(--fg)}
+table.res td:first-child{white-space:nowrap}
 @media (max-width:720px){.wrap{flex-direction:column}nav{width:auto;max-width:none;max-height:42vh;border-right:0;border-bottom:1px solid var(--line)}main{padding:12px 16px 40px}}
 header button{font:inherit;font-size:13px;padding:2px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);cursor:pointer}
 .vsw{display:inline-flex}.vsw button{border-radius:0}.vsw button:first-child{border-radius:6px 0 0 6px}.vsw button:last-child{border-radius:0 6px 6px 0;border-left:0}
@@ -1213,7 +1222,7 @@ function graph(){
  function tipFor(k,cx,cy){var it=items[k];tip.textContent='';
   if(it.stub){tip.appendChild(document.createTextNode(it.lt+'（全部 closed 的子树），点开展开'));}
   else{var nd=N[it.i],b=document.createElement('b');b.textContent=nd.i;tip.appendChild(b);tip.appendChild(document.createTextNode(' '+nd.t));
-   var m=document.createElement('div');m.className='m';m.textContent=(nd.S||'?')+(nd.V?' / '+nd.V:'')+' · 台账 '+nd.n+' 行'+(kids[it.i].length?' · 子节点 '+kids[it.i].length:'')+(col[it.i]?'（已收起 '+(size[it.i]-1)+' 个）':'');tip.appendChild(m);}
+   var m=document.createElement('div');m.className='m';m.textContent=(nd.S||'?')+(nd.V?' / '+nd.V:'')+' · 台账 '+nd.n+' 行'+(kids[it.i].length?' · 子节点 '+kids[it.i].length:'')+(col[it.i]?'（已收起 '+(size[it.i]-1)+' 个）':'');tip.appendChild(m);if(nd.c){var c=document.createElement('div');c.textContent=nd.c;tip.appendChild(c);}}
   tip.hidden=false;var hr=host.getBoundingClientRect(),w=tip.offsetWidth,h=tip.offsetHeight,x=cx-hr.left+14,y=cy-hr.top+16;
   if(x+w>hr.width-6)x=Math.max(6,cx-hr.left-w-14);if(y+h>hr.height-6)y=Math.max(6,cy-hr.top-h-12);tip.style.left=x+'px';tip.style.top=y+'px';}
  function hideTip(){tip.hidden=true;if(hov>=0&&nodeEl[hov])chain(hov,false);hov=-1;}
@@ -1312,10 +1321,13 @@ def render_html(t):
             f'<li><a class=ref href="#{esc(i)}">{esc(i)}</a> {esc(t.nodes[i]["title"])}'
             + (" <span class=meta>← " + " ← ".join(esc(t.nodes[c]["title"]) for c in t.chain(i)[::-1][:6]) + "</span>" if t.chain(i) else "")
             + "</li>" for i in act) + "</ul>")
+    ov.append('<h3>结果</h3><p><a href="#__results">结果页</a>：现在最信的一条、已关节点按日期倒序（结论首句与台账 id）、'
+              '挂在未关节点上的台账行（与 pt results 同一份数据）。</p>')
     loose = [r for r in t.rows if not r["nodes"]]
     if t.rows:
         ov.append(f'<h3>台账</h3><p><a href="#__ledger">全部 {len(t.rows)} 行</a>；未挂到节点的 {len(loose)} 行。</p>')
     arts.append('<article id="overview">' + "\n".join(ov) + "</article>")
+    arts.append('<article id="n-__results" hidden>' + results_html(t) + "</article>")
     if t.rows:
         arts.append('<article id="n-__ledger" hidden><h2>实验台账（experiments.md）</h2>' + ledger_html(t, t.rows) + "</article>")
     for i in sorted(t.nodes, key=id_key):
@@ -1336,6 +1348,9 @@ def render_html(t):
         if kids:
             a.append(" · 子 " + " ".join(f'<a class=ref href="#{esc(c)}">{esc(c)}</a>' for c in kids))
         a.append(f" · <code>tree/{esc(i)}.md</code></div>")
+        if n["status"] == "closed":
+            fs = first_sentence(section(n, "结论"))
+            a.append(f'<p class=cs1>{badge(n)} {inline(fs, t) if fs else "(无结论)"}</p>')
         for h, b in n["sections"]:
             body.append(f"<h3>{inline(h, t)}</h3>{md(b, t)}")
         rows = t.rows_of[i]
@@ -1355,7 +1370,8 @@ def render_html(t):
             f"<button id=vl type=button aria-pressed=false>列表</button></span>{boxes}"
             f"<label title=\"图上把全关的子树收成一个桩；列表里隐藏已关节点\"><input type=checkbox id=hideclosed> 只看活着</label>"
             f"<input type=search id=q placeholder=\"搜索 ID、标题、正文（回车定位）\">"
-            f"<button id=fold type=button>全折叠</button><button id=unfold type=button>全展开</button></header>\n"
+            f"<button id=fold type=button>全折叠</button><button id=unfold type=button>全展开</button>"
+            f"<a href=\"#__results\">结果</a></header>\n"
             f"<div class=wrap><nav><ul>{tree}</ul></nav>"
             f"<section id=graph aria-label=研究树总览图><div class=gbar><button id=gpan type=button>总览 / 详情</button><button id=gfit type=button>适应窗口</button>"
             f"<button id=gzi type=button aria-label=放大>＋</button><button id=gzo type=button aria-label=缩小>－</button>"
@@ -1364,6 +1380,40 @@ def render_html(t):
             f"<div id=gtip hidden></div><div id=glegend></div></section>"
             f"<main><div id=dbar><button id=dtog type=button><span id=dlab>总览</span><span class=x>收起 ✕</span></button></div>\n" + "\n".join(arts)
             + f"\n</main></div><script type=application/json id=gdata>{graph_data(t)}</script><script>{JS}</script></body></html>\n")
+
+
+def results_html(t):
+    """「结果」页：与 pt results 同一份数据（results.data）。"""
+    import results  # noqa: E402  延迟导入：results 依赖本模块
+    r = results.data(t.dir)
+    o = [f"<h2>结果 · {esc(t.slug)}</h2><div class=meta>与 <code>pt results {esc(t.slug)} --all</code> 同一份数据。"
+         "日期取结论首句里写的；没写的标「入档」，即这个节点在 git 里变成 closed 的那次提交。</div>"]
+    o.append("<h3>现在最信的一条</h3>" + (f"<p>{inline(r['belief'], t)}</p><div class=meta>{esc(r['belief_src'])}</div>"
+                                          if r["belief"] else "<p class=meta>—（根节点没有「当前认识」）</p>"))
+    o.append(f"<h3>已关节点（{len(r['closed'])} 个，日期新→旧）</h3>")
+    if r["closed"]:
+        o.append("<div class=tw><table class=res><thead><tr><th>日期</th><th>节点</th><th>verdict</th><th>结论首句</th><th>台账</th></tr></thead><tbody>")
+        for c in r["closed"]:
+            date = {"结论": c["date"], "入档": f"入档 {c['date']}", "未提交": "未提交"}[c["how"]]
+            n = t.nodes[c["id"]]
+            o.append(f'<tr><td>{esc(date)}</td><td><a class=ref href="#{esc(c["id"])}">{esc(c["id"])}</a></td>'
+                     f'<td>{badge(n)}</td><td>{inline(c["first"], t) if c["first"] else "(无结论)"}</td>'
+                     f'<td>{esc(", ".join(c["ledger"]))}</td></tr>')
+        o.append("</tbody></table></div>")
+    else:
+        o.append("<p class=meta>(无)</p>")
+    o.append(f"<h3>挂在未关节点上的台账行（{len(r['open_rows'])} 行，后写的在前）</h3>")
+    if r["open_rows"]:
+        o.append("<div class=tw><table class=res><thead><tr><th>实验</th><th>节点</th><th>结论（空的给读数）</th></tr></thead><tbody>")
+        for x in r["open_rows"]:
+            nodes = " ".join(f'<a class=ref href="#{esc(i)}">{esc(i)}</a> {esc(st)}' for i, st in x["nodes"])
+            o.append(f"<tr><td>{esc(x['id'])}</td><td>{nodes}</td><td>{inline(x['text'], t) if x['text'] else '—'}</td></tr>")
+        o.append("</tbody></table></div>")
+    else:
+        o.append("<p class=meta>(无)</p>")
+    if r["pushed"]:
+        o.append("<h3>已推送（state「线程」）</h3><ul class=plain>" + "".join(f"<li>{inline(x, t)}</li>" for x in r["pushed"]) + "</ul>")
+    return "".join(o)
 
 
 def write_html(t):

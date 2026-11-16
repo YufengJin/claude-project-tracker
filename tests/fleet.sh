@@ -37,7 +37,7 @@ check "学到别名 → hostname"             '[ "$(cat "$H/.fleet/hosts/a/hostn
 check "中心副本 Host=host-a，与节点同一提交" 'grep -q "^Host: host-a$" "$H/pa/charter.md" && [ "$(head_of "$H/pa")" = "$(head_of "$NA/pa")" ]'
 check "离线节点报告不可达"               'grep -q "^c: 不可达" <<<"$out"'
 out=$(hpt list --no-sync)
-check "list 显示别名"                   'grep -q "^| pa | A 上的项目 | 进行中 | a |" <<<"$out" && grep -q "pa .*@a " <<<"$out"'
+check "list 显示别名"                   'grep -q "^| pa | 进行中 |" <<<"$out" && grep -q "pa .*@a .*A 上的项目" <<<"$out"'
 
 echo "# 节点 checkpoint → 中心快进"
 npt a index pa "节点进展1" >/dev/null
@@ -132,7 +132,7 @@ check "brief 拿到最新"                   'grep -q "brief 前节点的新进�
 check "brief 提示 Host 与两种干法"       'grep -q "^Host: a (host-a)" <<<"$out" && grep -q "ssh a" <<<"$out" && grep -q "pt.sh dispatch pa" <<<"$out"'
 npt a index pa "list 前节点的新进展" >/dev/null
 out=$(hpt list)
-check "list 拿到最新 + 在线统计"         'grep -q "^| pa |.*list 前节点的新进展 |$" <<<"$out" && grep -q "已同步：2/3 台节点在线" <<<"$out"'
+check "list 拿到最新 + 在线统计"         '[ "$(first "$H/pa/state.md")" = "list 前节点的新进展" ] && grep -q "^| pa |" <<<"$out" && grep -q "已同步：2/3 台节点在线" <<<"$out"'
 
 echo "# 中心自己的空闲未提交改动（旧版会话写的）"
 echo "旧版会话写的" >> "$H/hubonly/state.md"
