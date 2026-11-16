@@ -22,7 +22,7 @@ check "五个文件 + archive"             '[ -f "$T/root/alpha/charter.md" ] &&
 check "charter Workdir = 当前目录"      'grep -q "^Workdir: $T/repoA$" "$T/root/alpha/charter.md"'
 check "charter Host = 本机"            'grep -q "^Host: host-me$" "$T/root/alpha/charter.md"'
 check "无 {{ 残留"                     '! grep -rq --exclude-dir=.git "{{" "$T/root/alpha"'
-check "INDEX 生成行（算出来的总览）"   'grep -q "^| alpha | 进行中 | $D journal | 0 天 | 0 | — | — | — |$" "$T/root/INDEX.md"'
+check "INDEX 生成行（算出来的总览）"   'grep -q "^| alpha | [0-9a-f]* | 进行中 | $D journal | 0 天 | 0 | — | — | — |$" "$T/root/INDEX.md"'
 check "ACTIVE = alpha"                 '[ "$(cat "$T/root/ACTIVE")" = alpha ]'
 check "journal 首条是新格式标题"        'grep -qxF "## [$D] 决定 | 立项 | 建立项目档案" "$T/root/alpha/journal.md" && grep -q "^Did: *建立项目档案" "$T/root/alpha/journal.md"'
 check "项目是 git 仓、分支 main、已首提交" '[ "$(git -C "$T/root/alpha" symbolic-ref --short HEAD)" = main ] && [ "$(git -C "$T/root/alpha" rev-list --count HEAD)" = 1 ] && [ -z "$(git -C "$T/root/alpha" status --porcelain)" ]'
@@ -140,11 +140,11 @@ n0=$(git -C "$T/root/alpha" rev-list --count HEAD)
 bash "$PT" index alpha "做到一半 | 有竖线" >/dev/null
 check "index 写 state 一句话"          '[ "$(awk "/^## 一句话概括/{f=1;next} f&&NF{print;exit}" "$T/root/alpha/state.md")" = "做到一半 | 有竖线" ]'
 check "index 只替换第一行，不动其他节"   'grep -q "^## 下一步" "$T/root/alpha/state.md" && ! grep -q "刚立项，尚未动手" "$T/root/alpha/state.md"'
-check "INDEX 行更新"                    'grep -q "^| alpha | 进行中 | $D " "$T/root/INDEX.md"'
+check "INDEX 行更新"                    'grep -q "^| alpha | [0-9a-f]* | 进行中 | $D " "$T/root/INDEX.md"'
 check "index 提交了一次 checkpoint"     '[ "$(git -C "$T/root/alpha" rev-list --count HEAD)" = $((n0+1)) ] && [ -z "$(git -C "$T/root/alpha" status --porcelain)" ] && git -C "$T/root/alpha" log -1 --format=%s | grep -q "^checkpoint @host-me: 做到一半"'
-check "index 不动其他行"               'grep -q "^| beta | 进行中 |" "$T/root/INDEX.md"'
+check "index 不动其他行"               'grep -q "^| beta | [0-9a-f]* | 进行中 |" "$T/root/INDEX.md"'
 bash "$PT" index beta "全部通过" 已完成 >/dev/null
-check "index 状态同步 charter"         'grep -q "^| beta | 已完成 |" "$T/root/INDEX.md" && grep -q "^Status: 已完成$" "$T/root/beta/charter.md"'
+check "index 状态同步 charter"         'grep -q "^| beta | [0-9a-f]* | 已完成 |" "$T/root/INDEX.md" && grep -q "^Status: 已完成$" "$T/root/beta/charter.md"'
 check "已完成排在进行中之后"           '[ "$(grep -n "^| alpha |" "$T/root/INDEX.md" | cut -d: -f1)" -lt "$(grep -n "^| beta |" "$T/root/INDEX.md" | cut -d: -f1)" ]'
 check "已完成项目不再命中 where"       '[ -z "$(cd "$T/repoB" && bash "$PT" where)" ]'
 check "index 非法状态拒绝"             '! bash "$PT" index alpha x 完蛋 2>/dev/null'
@@ -361,7 +361,7 @@ check "S6 sed 处理不了的名称：报错且不留空档案" '[ $rc -ne 0 ] &
 # M1 Status 带括号注
 sed -i "s/^Status:.*/Status: 进行中 (探索期)/" "$B/charter.md"
 check "M1 Status「进行中 (探索期)」where 照样命中" '(cd "$T/rbw" && bash "$PT" where) | grep -qx rb'
-check "M1 INDEX 状态列按括号前的状态值算" 'bash "$PT" list --no-sync >/dev/null; grep -q "^| rb | 进行中 |" "$T/root/INDEX.md"'
+check "M1 INDEX 状态列按括号前的状态值算" 'bash "$PT" list --no-sync >/dev/null; grep -q "^| rb | [0-9a-f]* | 进行中 |" "$T/root/INDEX.md"'
 check "M1 precompact 命中带注的进行中项目" '(cd "$T/rbw" && bash "$PT" precompact </dev/null) | grep -q "项目 rb"'
 # M2 考官卡「未冻结」不算冻结
 sed -i "s/^Updated: .*/Updated: $D   Status: 未冻结（等用户）/" "$B/verifier.md"
@@ -595,8 +595,8 @@ check "Workdir 不在本机 → 待定位 + 提示" 'grep -q "^Host: 待定位$"
 check "INDEX 一句话写进 state 首行"     '[ "$(awk "/^## 一句话概括/{f=1;next} f&&NF{print;exit}" "$T/old/legacy/state.md")" = "旧的一句话" ] && grep -q "刚立项，尚未动手" "$T/old/legacy/state.md"'
 check "状态不一致时提示"               'grep -q "elsewhere.*状态不一致 INDEX=进行中 charter=暂停" <<<"$out"'
 check "迁移后是 git 仓且干净"           '[ -z "$(git -C "$T/old/legacy" status --porcelain)" ] && git -C "$T/old/legacy" log -1 --format=%s | grep -q "^migrate to 0.4"'
-check "INDEX 重建为新格式"             'grep -q "| 现在最信的一条 |" "$T/old/INDEX.md" && grep -q "^| legacy | 进行中[^|]* | 2026-01-01 journal |" "$T/old/INDEX.md"'
-check "迁移提交不算最近活动（取 journal 日期）" 'grep -q "^| elsewhere | 暂停 | 2026-01-01 journal |" "$T/old/INDEX.md"'
+check "INDEX 重建为新格式"             'grep -q "| 现在最信的一条 |" "$T/old/INDEX.md" && grep -q "^| legacy | [0-9a-f]* | 进行中[^|]* | 2026-01-01 journal |" "$T/old/INDEX.md"'
+check "迁移提交不算最近活动（取 journal 日期）" 'grep -q "^| elsewhere | [0-9a-f]* | 暂停 | 2026-01-01 journal |" "$T/old/INDEX.md"'
 n1=$(git -C "$T/old/legacy" rev-list --count HEAD)
 bash "$PT" migrate >/dev/null
 check "migrate 幂等"                   '[ "$(git -C "$T/old/legacy" rev-list --count HEAD)" = "$n1" ] && [ "$(grep -c "旧的一句话" "$T/old/legacy/state.md")" = 1 ] && [ "$(grep -c "^Host:" "$T/old/legacy/charter.md")" = 1 ]'
@@ -623,9 +623,9 @@ AR="$T/asy"
 echo "改动" >> "$AR/syn/state.md"
 git -C "$AR/syn" -c user.name=pt -c user.email=pt@x commit -qam "autosync @host-me (idle)"
 PROJECT_TRACKER_ROOT="$AR" bash "$PT" list --no-sync >/dev/null
-check "autosync 之后最近活动仍是上次 checkpoint 的日期" 'grep -q "^| syn | 进行中[^|]* | 2026-01-02 " "$AR/INDEX.md"'
+check "autosync 之后最近活动仍是上次 checkpoint 的日期" 'grep -q "^| syn | [0-9a-f]* | 进行中[^|]* | 2026-01-02 " "$AR/INDEX.md"'
 PROJECT_TRACKER_ROOT="$AR" bash "$PT" index syn "新进展" >/dev/null
-check "再 checkpoint 就是今天"                          'grep -q "^| syn | 进行中 | $D 提交 |" "$AR/INDEX.md"'
+check "再 checkpoint 就是今天"                          'grep -q "^| syn | [0-9a-f]* | 进行中 | $D 提交 |" "$AR/INDEX.md"'
 
 echo "# lint（只读体检）"
 LR="$T/lint"; mkdir -p "$T/lw/a" "$T/lw/b" "$LR/.fleet/hosts/far"; echo host-far > "$LR/.fleet/hosts/far/hostname"
@@ -809,6 +809,30 @@ sys.exit(0 if old == new[0] + "\n\n" + arc + new[2][1:] else 1)   # 原文 = 标
 PY'
 out=$(bash "$PT" journal-archive eng)
 check "不到 100 KB 不搬"                  'grep -q "不用搬" <<<"$out" && [ "$(git -C "$JR" log -1 --format=%s | cut -c1-15)" = "journal-archive" ]'
+export PROJECT_TRACKER_ROOT="$T/root"
+
+echo "# 项目编号（sha1(slug) 前缀）、按编号删、restore"
+IR="$T/idroot"; export PROJECT_TRACKER_ROOT="$IR"
+for s in alpha p172 p211; do (cd "$T/other" && bash "$PT" new "$s" "编号 $s") >/dev/null; done
+sha(){ printf '%s' "$1" | sha1sum | cut -c1-"$2"; }
+out=$(bash "$PT" id)
+check "id 列出全部，长度取互不重名的最短（p172/p211 前 6 位相同 → 7 位）" '[ "$(wc -l <<<"$out")" = 3 ] && grep -qx "$(sha alpha 7) alpha" <<<"$out" && grep -qx "$(sha p172 7) p172" <<<"$out" && grep -qx "$(sha p211 7) p211" <<<"$out"'
+check "list 编号列紧跟项目名、--tsv 在末列" 'bash "$PT" list --no-sync | grep -q "^| 项目 | 编号 | 状态 |" && bash "$PT" list --no-sync | grep -q "^| alpha | $(sha alpha 7) | 进行中 |" && bash "$PT" list --no-sync --tsv | grep -q "^alpha	.*	$(sha alpha 7)$"'
+check "站点首页与项目页页头显示编号" 'bash "$PT" site >/dev/null && grep -q "编号 alpha</a> <small class=\"nid\">$(sha alpha 7)</small>" "$IR/site/index.html" && grep -q "<h1>[^<]*<small class=\"nid\">$(sha alpha 7)</small></h1>" "$IR/site/p/alpha.html"'
+check "id 认 slug，也认 3 位以上的编号前缀" '[ "$(bash "$PT" id alpha)" = "$(sha alpha 7) alpha" ] && [ "$(bash "$PT" id "$(sha alpha 3)")" = "$(sha alpha 7) alpha" ]'
+err=$(bash "$PT" id c80bd 2>&1); rc=$?
+check "前缀命中多个：报错并列出候选" '[ $rc -ne 0 ] && grep -q "命中多个" <<<"$err" && grep -q "$(sha p172 7) p172" <<<"$err" && grep -q "$(sha p211 7) p211" <<<"$err"'
+check "没命中、不到 3 位都报不存在" '! bash "$PT" id 0000000 2>/dev/null && ! bash "$PT" id "$(sha alpha 2)" 2>/dev/null'
+printf 'nohost\n' > "$IR/FLEET"; echo alpha > "$IR/ACTIVE"
+check "不是中心机时 rm / restore 都拒绝" '! bash "$PT" rm "$(sha p211 7)" >/dev/null 2>&1 && ! bash "$PT" restore p211 >/dev/null 2>&1 && [ -d "$IR/p211" ]'
+out=$(PT_SYNC_ANY_ROOT=1 bash "$PT" rm c80bd "$(sha alpha 4)" "$(sha p211 7)" 2>&1); rc=$?
+check "rm 按编号删：先打印「编号 → slug」；歧义前缀、ACTIVE 照旧跳过" '[ $rc -ne 0 ] && grep -q "c80bd: 编号 c80bd 命中多个" <<<"$out" && grep -qx "  $(sha alpha 4) → alpha" <<<"$out" && grep -q "alpha: 是 ACTIVE" <<<"$out" && grep -qx "  $(sha p211 7) → p211" <<<"$out" && grep -q "p211: 已删除，备份" <<<"$out" && [ ! -d "$IR/p211" ] && [ -d "$IR/p172" ] && grep -qx p211 "$IR/.deleted"'
+check "删掉一个后编号回到 4 位" '[ "$(bash "$PT" id p172)" = "$(sha p172 4) p172" ]'
+bk=$(ls "$IR/.backup"/deleted-p211-*.tgz)
+cp "$bk" "$IR/.backup/deleted-p211-20000101-000000.tgz"; : > "$IR/.backup/deleted-p211-x-29990101-000000.tgz"
+out=$(PT_SYNC_ANY_ROOT=1 bash "$PT" restore p211 2>&1); rc=$?
+check "restore 取这个 slug 最新的备份包、去墓碑、重建总览" '[ $rc -eq 0 ] && grep -q "用的备份 $bk" <<<"$out" && [ -f "$IR/p211/charter.md" ] && git -C "$IR/p211" log -1 >/dev/null && ! grep -qx p211 "$IR/.deleted" && grep -q "^| p211 |" "$IR/INDEX.md"'
+check "restore：目标已存在、没有备份都拒绝" '! PT_SYNC_ANY_ROOT=1 bash "$PT" restore p211 2>/dev/null && ! PT_SYNC_ANY_ROOT=1 bash "$PT" restore nobk 2>/dev/null'
 export PROJECT_TRACKER_ROOT="$T/root"
 
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

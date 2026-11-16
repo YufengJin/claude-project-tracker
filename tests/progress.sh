@@ -33,7 +33,7 @@ echo x >> "$R/act/charter.md"; cm act 2026-11-13 "charter: Host「ws02」改成�
 echo y >> "$R/act/state.md"; cm act 2026-11-14 "记忆迁入：旧目录记忆原文迁到 references"
 echo z >> "$R/act/state.md"; cm act 2026-11-15 "autosync @host-me (idle)"
 lst
-check "运维条目、autosync、批量迁移的提交都不算"     'row act | grep -q "^| act | 进行中 | 2026-11-05 journal | 11 天 |"'
+check "运维条目、autosync、批量迁移的提交都不算"     'row act | grep -q "^| act | [0-9a-f]* | 进行中 | 2026-11-05 journal | 11 天 |"'
 mk hand; redate hand 2026-10-01; cm hand 2026-10-01 x; echo w >> "$R/hand/plan.md"; cm hand 2026-11-10 "journal: 手写的提交说明也算"
 lst
 check "不带 checkpoint 前缀的手写提交也算"           'row hand | grep -q "| 2026-11-10 提交 |"'
@@ -87,8 +87,8 @@ mk done; redate done 2026-11-10; printf -- '# 计划\n- [x 11-01] 一\n- [ ] 二
 mk para; redate para 2026-11-10; ptd research para
 node para H1 "还开着" Q1 active "" ""; sed -i 's/^Status:.*/Status: 暂停/' "$R/para/charter.md"; cm para 2026-11-10 x
 lst
-check "进行中 14 天没活动标 ⚠停滞"                  'row old | grep -q "^| old | 进行中 ⚠停滞 |"'
-check "暂停但树上还有 active 标 ⚠矛盾"              'row para | grep -q "^| para | 暂停 ⚠矛盾（树上 2 个 active） |"'
+check "进行中 14 天没活动标 ⚠停滞"                  'row old | grep -q "^| old | [0-9a-f]* | 进行中 ⚠停滞 |"'
+check "暂停但树上还有 active 标 ⚠矛盾"              'row para | grep -q "^| para | [0-9a-f]* | 暂停 ⚠矛盾（树上 2 个 active） |"'
 check "排序：等用户（有日期）> 等用户（旧格式）> 停滞 > 矛盾 > 其余" '[ "$(grep -o "^| [a-z]* |" "$R/INDEX.md" | tr -d "| " | head -n 4 | tr "\n" " ")" = "pend leg old para " ]'
 out=$(bash "$PT" lint old done para)
 check "lint idle"                                    'grep -q "^old: idle: 进行中，但最近活动 2026-10-01（journal）已过 46 天" <<<"$out"'
@@ -110,7 +110,7 @@ check "取第 1 条、去粗体、竖线转义、截到一行"          'row act
 check "工程项目 state 可以有「当前认识」（仍合格）"    'python3 "$SD/brief.py" --check "$R/act/state.md"'
 check "研究项目 state 的「当前认识」不算固定小节"      'cp "$R/act/state.md" "$R/para/state.md"; ! python3 "$SD/brief.py" --check "$R/para/state.md"'
 tsv=$(bash "$PT" list --no-sync --tsv)
-check "--tsv 表头与列数"                             '[ "$(head -n1 <<<"$tsv")" = "$(printf "slug\tname\tstatus\thost\tact\tact_src\tdays\tpend_n\tpend_days\tprogress\trunning\tflags\tbelief\tsummary")" ] && [ "$(awk -F"\t" "{print NF}" <<<"$tsv" | sort -u)" = 14 ]'
+check "--tsv 表头与列数"                             '[ "$(head -n1 <<<"$tsv")" = "$(printf "slug\tname\tstatus\thost\tact\tact_src\tdays\tpend_n\tpend_days\tprogress\trunning\tflags\tbelief\tsummary\tid")" ] && [ "$(awk -F"\t" "{print NF}" <<<"$tsv" | sort -u)" = 15 ]'
 check "--tsv 不截断最信的一条"                       'grep "^act	" <<<"$tsv" | grep -q "续行并入第一条"'
 
 echo "# 在跑：本机 fleet 任务里记了 slug、还在跑的"
@@ -125,7 +125,7 @@ echo "# 缓存"
 lst; t0=$(date +%s%N); lst; t1=$(date +%s%N)
 check "缓存命中（第二次 list）"                        '[ -f "$R/.cache/progress.json" ]'
 echo q >> "$R/old/state.md"; jh old 2026-11-16 决定 "再一条"; sed -i 's/^Status:.*/Status: 暂停/' "$R/old/charter.md"; lst
-check "文件一改缓存就失效"                           'row old | grep -q "^| old | 暂停 |"'
+check "文件一改缓存就失效"                           'row old | grep -q "^| old | [0-9a-f]* | 暂停 |"'
 
 echo "# pt results"
 python3 - "$R/mrg" <<'PY'

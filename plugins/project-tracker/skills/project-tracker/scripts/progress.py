@@ -6,6 +6,7 @@
   progress.py list --root R --host H [--tsv]    打印总览表与各项目的主机、名称、Workdir（--tsv 给代理，一行一个项目）
 
 每列怎么算（算不出来显示「—」，不猜）：
+  编号      sha1(slug) 的十六进制前缀，取让全部项目互不重名的最短长度（至少 4 位）；不存文件，pt rm / pt id 认它（--tsv 在末列）
   状态      charter 的 Status（括号前那段）；暂停/已放弃/已完成但研究树还有 active 节点标「⚠矛盾」，进行中但 14 天没活动标「⚠停滞」，
             中心机同步发现与节点分叉标「⚠分叉」
   最近活动  只看档案，取最晚者并注来源：提交（不算 autosync、合并，以及提交说明标明是批量迁移或同步的）、
@@ -18,6 +19,7 @@
 排序：等用户（有日期的在前，旧格式无日期的随后）> 进行中但 14 天没活动 > 状态矛盾 > 其余按最近活动。只用标准库。
 """
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -456,6 +458,21 @@ def aliases_of(root):
     return out
 
 
+def short_ids(slugs):
+    """项目编号：sha1(slug) 的十六进制前缀，不存文件。长度取让这些项目互不重名的最短长度，至少 4 位（pt.sh 的 proj_ids 同一算法）。"""
+    full = {s: hashlib.sha1(s.encode()).hexdigest() for s in slugs}
+    n = 4
+    while n < 40 and len({h[:n] for h in full.values()}) < len(full):
+        n += 1
+    return {s: h[:n] for s, h in full.items()}
+
+
+def project_ids(root):
+    """档案根下全部项目（不以点开头、有 charter.md 的目录）的编号。"""
+    return short_ids([s for s in os.listdir(root)
+                      if not s.startswith(".") and os.path.isfile(os.path.join(root, s, "charter.md"))])
+
+
 def row(slug, d, f, ref, run, me, aliases):
     """把缓存的 facts 加上随今天变化的部分（距今、等用户天数、停滞、在跑）。"""
     r = dict(f, slug=slug)
@@ -511,6 +528,9 @@ def collect(root, me, ref=None):
         f = c["data"] if c and c.get("sig") == sig else facts(d)
         fresh[slug] = {"sig": sig, "data": f}
         rows.append(row(slug, d, f, ref, run, me, aliases))
+    ids = short_ids([r["slug"] for r in rows])
+    for r in rows:
+        r["id"] = ids[r["slug"]]
     if fresh != cache:
         save_cache(root, fresh)
     return order(rows)
@@ -574,14 +594,15 @@ def index_md(rows):
            "由 pt.sh 从各项目档案算出，不要手改。排序：等用户 > 进行中但 14 天没活动（⚠停滞）> 状态矛盾（⚠矛盾）> 其余按最近活动。",
            "最近活动只看档案：提交（不算 autosync、合并与批量迁移）、journal 非运维条目、研究树节点状态变化，取最晚者；— 表示算不出。",
            "等用户只数 state 里标题含「待拍板 / 待用户 / 等用户」的小节；「—」= 没有这种小节，不等于没在等（正文里写的等用户不算）。", "",
-           "| " + " | ".join(COLS) + " |", "|" + "---|" * len(COLS)]
-    for r in rows:
-        out.append("| " + " | ".join(md_cell(c) for c in cells(r)) + " |")
+           "| " + " | ".join(COLS[:1] + ("编号",) + COLS[1:]) + " |", "|" + "---|" * (len(COLS) + 1)]
+    for r in rows:  # 编号（pt rm / pt id 认它）紧跟项目名；research.html 的总览表不带这一列
+        c = cells(r)
+        out.append("| " + " | ".join(md_cell(x) for x in c[:1] + [r.get("id") or "—"] + c[1:]) + " |")
     return "\n".join(out) + "\n"
 
 
 TSV_KEYS = ("slug", "name", "status", "host", "act", "act_src", "days", "pend_n", "pend_days", "progress",
-            "running", "flags", "belief", "summary")
+            "running", "flags", "belief", "summary", "id")
 
 
 def tsv(rows):

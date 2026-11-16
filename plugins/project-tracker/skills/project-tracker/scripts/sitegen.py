@@ -631,12 +631,12 @@ def groups_html(rec, R, expand_answered=True, concl=None):
     return "".join(out)
 
 
-def project_page(rec, today, tree_href, note):
+def project_page(rec, today, tree_href, note, pid=""):
     R = Ref(rec, "project", "human")
     research = rec["kind"] == "research"
     act = rec["activity"]
     s = [f'<div class="crumb"><a href="../index.html">全部项目</a> › {esc(rec["slug"])}</div>',
-         f'<h1>{esc(rec["name"] or rec["slug"])}</h1>']
+         f'<h1>{esc(rec["name"] or rec["slug"])}{nid(pid) if pid else ""}</h1>']
     meta = ["研究项目" if research else "工程项目", rec["status"] or "状态未写"]
     meta.append(f"最近活动 {act['date']}（{act['days']} 天前）" if act["date"] else "最近活动未记录")
     links = f'<a href="{tree_href}">研究树图</a>' if tree_href else ""
@@ -883,7 +883,8 @@ def node_page(rec, i, note):
 
 # ---------- 全部项目 ----------
 
-def overview(recs, fails, today, research_href, note):
+def overview(recs, fails, today, research_href, note, ids=None):
+    ids = ids or {}
     allp = len(recs) + len(fails)
     pend = [(r, len(r["pending"])) for r in recs.values() if r["pending"]]
     pend.sort(key=lambda x: -x[1])
@@ -939,7 +940,8 @@ def overview(recs, fails, today, research_href, note):
             elif r["kind"] != "research":
                 prog += '<div class="muted">条件未登记</div>'
             summ = r["state"]["summary"]
-            rows.append(f'<div class="proj"><a class="pn" href="p/{r["slug"]}.html">{esc(r["name"] or r["slug"])}</a>'
+            pid = nid(ids[r["slug"]]) if r["slug"] in ids else ""  # 项目编号（pt rm / pt id 认它）
+            rows.append(f'<div class="proj"><a class="pn" href="p/{r["slug"]}.html">{esc(r["name"] or r["slug"])}</a>{pid}'
                         f'<div class="meta">{"".join(f"<span>{esc(x)}</span>" for x in m)}{tags}</div>'
                         f'<div class="now">{inline(cut(summ, 110), Ref(r, "index", "human")) if summ else NONE}</div>{prog}</div>')
         body = "".join(rows)
@@ -1008,12 +1010,14 @@ def build(root, out=None, slugs=None, today=None):
         # --out 指到别处时这些相对路径既不在 pt serve 里、换台机器也打不开，不给
         home = out == os.path.join(root, "site")
         rh = "../research.html" if home and os.path.isfile(os.path.join(root, "research.html")) else ""
-        sizes["index.html"] = write(os.path.join(tmp, "index.html"), overview(recs, fails, today, rh, note))
+        ids = progress.project_ids(root)
+        sizes["index.html"] = write(os.path.join(tmp, "index.html"), overview(recs, fails, today, rh, note, ids))
         for slug, rec in recs.items():
             th = os.path.join(root, slug, "tree.html")
             href = rel(th, os.path.join(out, "p")) if home and rec["kind"] == "research" and os.path.isfile(th) else ""
             try:
-                sizes[f"p/{slug}.html"] = write(os.path.join(tmp, "p", f"{slug}.html"), project_page(rec, today, href, note))
+                sizes[f"p/{slug}.html"] = write(os.path.join(tmp, "p", f"{slug}.html"), project_page(rec, today, href, note,
+                                                                                         ids.get(slug, "")))
                 for i in rec["nodes"]:
                     sizes[f"p/{slug}/{i}.html"] = write(os.path.join(tmp, "p", slug, f"{i}.html"), node_page(rec, i, note))
                 pages = entry_pages(rec)

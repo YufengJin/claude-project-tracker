@@ -37,7 +37,7 @@ check "学到别名 → hostname"             '[ "$(cat "$H/.fleet/hosts/a/hostn
 check "中心副本 Host=host-a，与节点同一提交" 'grep -q "^Host: host-a$" "$H/pa/charter.md" && [ "$(head_of "$H/pa")" = "$(head_of "$NA/pa")" ]'
 check "离线节点报告不可达"               'grep -q "^c: 不可达" <<<"$out"'
 out=$(hpt list --no-sync)
-check "list 显示别名"                   'grep -q "^| pa | 进行中 |" <<<"$out" && grep -q "pa .*@a .*A 上的项目" <<<"$out"'
+check "list 显示别名"                   'grep -q "^| pa | [0-9a-f]* | 进行中 |" <<<"$out" && grep -q "pa .*@a .*A 上的项目" <<<"$out"'
 
 echo "# 节点 checkpoint → 中心快进"
 npt a index pa "节点进展1" >/dev/null

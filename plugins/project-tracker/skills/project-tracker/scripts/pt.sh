@@ -20,7 +20,9 @@
 #   pt.sh site [--out DIR]                     给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/（pt monitor 顺带生成）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html、各 tree.html 与 site/ 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
-#   pt.sh rm <slug> ...                        中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）
+#   pt.sh rm <slug|编号> ...                   中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）
+#   pt.sh restore <slug>                       中心机：从 .backup/ 最新的 deleted-<slug>-*.tgz 恢复，去掉墓碑
+#   pt.sh id [<slug|编号>]                     项目编号（sha1(slug) 前缀，pt list 的「编号」列）：打印「编号 slug」，不带参数列出全部
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
 #   pt.sh runs [slug | --wait <run>]           中心机：派活状态 / 等某次派活结束
@@ -87,6 +89,39 @@ journal_tail() {
         } else { if (!cut) from = no[i]; cut += length(line[i]) }
       }
     }' "$1"
+}
+
+# 项目编号：sha1(slug) 的十六进制前缀，不存文件。proj_hashes 打印「完整 sha1 slug」；proj_ids 打印「编号 slug」，
+# 长度取让全部项目（有 charter.md 的目录）互不重名的最短长度，至少 4 位（progress.py 的 short_ids 同一算法）
+proj_hashes() {
+  local d s
+  for d in "$ROOT"/*/; do
+    s="$(basename "$d")"
+    [ -f "$d/charter.md" ] && printf '%s %s\n' "$(printf '%s' "$s" | sha1sum | cut -c1-40)" "$s"
+  done
+}
+proj_ids() {
+  proj_hashes | awk '{ h[NR] = $1; s[NR] = $2 }
+    END {
+      for (n = 4; n < 40; n++) { split("", seen); dup = 0
+        for (i = 1; i <= NR; i++) { p = substr(h[i], 1, n); if (p in seen) { dup = 1; break }; seen[p] = 1 }
+        if (!dup) break }
+      for (i = 1; i <= NR; i++) print substr(h[i], 1, n), s[i] }'
+}
+# resolve_proj <slug 或编号>：已存在的 slug 原样打印；否则当编号前缀（至少 3 位十六进制）找，唯一命中才打印 slug。
+# 找不到或不唯一时打印一行原因、返回 1
+resolve_proj() {
+  local a=$1 m
+  if [[ "$a" =~ $SLUG_RE ]] && [ -d "$ROOT/$a" ]; then echo "$a"; return 0; fi
+  [[ "${a,,}" =~ ^[0-9a-f]{3,40}$ ]] || { echo "不存在"; return 1; }
+  m="$(proj_hashes | awk -v p="${a,,}" 'index($1, p) == 1 { print $2 }')"
+  [ -n "$m" ] || { echo "不存在（没有这个 slug，也没有以它开头的编号）"; return 1; }
+  if [ "$(printf '%s\n' "$m" | wc -l)" -gt 1 ]; then
+    echo "编号 $a 命中多个项目，多写几位：$(proj_ids | M="$m" awk 'BEGIN { n = split(ENVIRON["M"], x, "\n"); for (i = 1; i <= n; i++) w[x[i]] }
+      $2 in w { printf "%s%s %s", (k++ ? "、" : ""), $1, $2 }')"
+    return 1
+  fi
+  echo "$m"
 }
 
 # 读 charter 里的字段：field <slug> <Key>
@@ -676,13 +711,14 @@ cmd_index() {
 # rm（只在中心机）：整个目录打包到 .backup/，包里的条目数对得上才删；slug 记进墓碑 .deleted（同步时不再从节点导入）。
 # 节点上的副本不动。ACTIVE、有会话绑定、有派活在跑的不删
 cmd_rm() {
-  [ $# -gt 0 ] || die "用法: pt.sh rm <slug> ..."
+  [ $# -gt 0 ] || die "用法: pt.sh rm <slug|编号> ..."
   is_hub || die "pt rm 只在中心机（有 $ROOT/FLEET、档案根是默认位置）上用"
-  local s bk b active rc=0
+  local a s bk b active rc=0
   active="$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
   mkdir -p "$ROOT/.backup"
-  for s in "$@"; do
-    if ! [[ "$s" =~ $SLUG_RE ]] || [ ! -d "$ROOT/$s" ]; then echo "  $s: 不存在，跳过"; rc=1; continue; fi
+  for a in "$@"; do
+    if ! s="$(resolve_proj "$a")"; then echo "  $a: $s，跳过"; rc=1; continue; fi
+    [ "$s" = "$a" ] || echo "  $a → $s"
     if [ "$s" = "$active" ]; then echo "  $s: 是 ACTIVE（最近一次 brief 的项目），不删"; rc=1; continue; fi
     b="$(grep -lxF "$s" "$SESS_DIR"/* 2>/dev/null | head -n1)"
     if [ -n "$b" ]; then echo "  $s: 会话 $(basename "$b") 绑定着它（$(date -r "$b" +%F)），不删；那个会话已结束就先删 $b"; rc=1; continue; fi
@@ -699,6 +735,34 @@ cmd_rm() {
   render_index
   render_monitor
   return $rc
+}
+
+# restore（只在中心机）：rm 的反操作。取 .backup/ 里这个 slug 最新的 deleted-<slug>-<时间>.tgz 解回档案根，去掉墓碑。
+# 目标目录已存在就拒绝
+cmd_restore() {
+  local s="${1:-}" bk
+  [ -n "$s" ] && [ $# -eq 1 ] || die "用法: pt.sh restore <slug>"
+  is_hub || die "pt restore 只在中心机（有 $ROOT/FLEET、档案根是默认位置）上用"
+  [[ "$s" =~ $SLUG_RE ]] || die "slug 只能是小写字母、数字、连字符: $s"
+  [ ! -e "$ROOT/$s" ] || die "已存在: $ROOT/$s，不覆盖"
+  bk="$(ls -1 "$ROOT/.backup" 2>/dev/null | grep -E "^deleted-$s-[0-9]{8}-[0-9]{6}\.tgz\$" | sort | tail -n1)"
+  [ -n "$bk" ] || die "$ROOT/.backup/ 里没有 $s 的删除备份（deleted-$s-<时间>.tgz）"
+  bk="$ROOT/.backup/$bk"
+  tar xzf "$bk" -C "$ROOT" "$s" && [ -f "$ROOT/$s/charter.md" ] || die "解包失败或包里没有 $s/charter.md：$bk"
+  [ -f "$ROOT/.deleted" ] && sed -i "/^$s\$/d" "$ROOT/.deleted"
+  render_index
+  render_monitor
+  echo "[project-tracker] 已恢复 $s，用的备份 $bk"
+}
+
+# id：打印「编号 slug」；不带参数列出全部（按 slug 排）
+cmd_id() {
+  local s
+  [ $# -le 1 ] || die "用法: pt.sh id [<slug|编号>]"
+  [ -d "$ROOT" ] || die "没有 $ROOT（还没有任何项目）"
+  if [ $# -eq 0 ]; then proj_ids; return 0; fi
+  s="$(resolve_proj "$1")" || die "$1: $s"
+  proj_ids | awk -v s="$s" '$2 == s' | grep . || die "$s 没有 charter.md，不算项目、没有编号"
 }
 
 # journal-archive：journal.md 超过 100 KB 时按月原样搬到 archive/，条目一字不改，搬完提交（多机同步照常快进）
@@ -770,11 +834,13 @@ case "${1:-}" in
   journal-archive) shift; cmd_journal_archive "$@" ;;
   migrate)  cmd_migrate ;;
   rm)       shift; cmd_rm "$@" ;;
+  restore)  shift; cmd_restore "$@" ;;
+  id)       shift; cmd_id "$@" ;;
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
   site)     shift; command -v python3 >/dev/null || die "pt site 要 python3"; python3 "$HERE/sitegen.py" "$ROOT" "$@" ;;
   monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)
             is_hub || { off_root_note; die "这台机器不是中心机（没有 $ROOT/FLEET，或档案根不是默认位置）"; }
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,28p' "$0"; exit 1 ;;
+  *)        sed -n '2,30p' "$0"; exit 1 ;;
 esac
