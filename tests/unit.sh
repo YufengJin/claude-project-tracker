@@ -66,7 +66,7 @@ check "brief 顺序 INDEX→lint→state→条件→journal 标题→去哪找" 
 import sys; s=sys.argv[1]; ks=["INDEX 行","= lint","= state.md（旧格式","= 条件","= journal 最近","= 去哪找"]
 idx=[s.find(k) for k in ks]; sys.exit(0 if all(i>=0 for i in idx) and idx==sorted(idx) else 1)
 PY'
-check "工程项目：journal 只给最近的标题、不给正文" 'grep -q "^- J2026-01-04.1 \[旧格式\] session 4" <<<"$out" && ! grep -q "^Goal: z" <<<"$out"'
+check "工程项目：journal 只给最近的标题、不给正文" 'grep -q "^- J260104-1 \[旧格式\] session 4" <<<"$out" && ! grep -q "^Goal: z" <<<"$out"'
 check "ADR 正文不进简报"               '! grep -q "secret-body" <<<"$out" && grep -q "decisions.md（为何转向）" <<<"$out"'
 check "brief 不含其他项目"             '! grep -q "beta\|项目 B" <<<"$out"'
 check "本机项目 brief 不提 Host"        '! grep -q "^Host:.*那台机器" <<<"$out"'
@@ -86,7 +86,7 @@ for i in range(400): print('续 %d：' % i + '证据' * 60)"
   printf 'Next: 倒数第二条的下一步\n\n## 2026-02-02 · session 3\nGoal: 最新的目标\nNext: 最新的下一步\n'; } >> "$T/root/big/journal.md"
 out=$(bash "$PT" brief big)
 check "超预算时简报不超过 8192 字节"     '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
-check "大 journal：只给标题、不给正文"   'grep -q "J2026-02-02.1 \[旧格式\] session 3" <<<"$out" && ! grep -q "^续 \|^Goal: " <<<"$out"'
+check "大 journal：只给标题、不给正文"   'grep -q "J260202-1 \[旧格式\] session 3" <<<"$out" && ! grep -q "^续 \|^Goal: " <<<"$out"'
 check "journal 原文没被动"             '[ "$(grep -c "^续 " "$T/root/big/journal.md")" = 400 ]'
 
 echo "# brief 的 8 KB 上限"
@@ -536,6 +536,7 @@ echo '<p>OUTSIDE</p>' > "$T/outside/tree.html"; ln -s "$T/outside" "$SV/evil"; l
 echo '# ra' > "$SV/ra/charter.md"; echo '# nt' > "$SV/nt/charter.md"; mkdir -p "$SV/site/p/ra" "$SV/site/p/nt" "$SV/site/p/gone"
 touch "$SV/site/.pt-site"; echo '<p>SITE-INDEX</p>' > "$SV/site/index.html"; echo '<p>SITE-RA</p>' > "$SV/site/p/ra.html"
 echo '<p>SITE-NT</p>' > "$SV/site/p/nt.html"; echo '<p>SITE-H1</p>' > "$SV/site/p/ra/H1.html"; echo '<p>GONE</p>' > "$SV/site/p/gone.html"
+echo '<p>SITE-J</p>' > "$SV/site/p/nt/J260927-3.html"
 echo secret > "$SV/site/p/ra/notes.txt"; ln -s "$T/outside/tree.html" "$SV/site/p/ra/H2.html"; ln -s "$SV/site/p/ra.html" "$SV/site/p/evil.html"
 SERVE="$(dirname "$PT")/serve.py"
 check "没有 .serve.conf 拒绝启动"          '! python3 "$SERVE" --root "$SV" run --port 0 2>"$T/sv.err" && grep -q "serve.conf" "$T/sv.err"'
@@ -553,6 +554,7 @@ check "白名单身份 / → research.html"       'curl -s "${ME[@]}" "$U/" | gr
 check "白名单身份（大小写无关）tree.html 200" 'curl -s -H "Tailscale-User-Login: OTHER@example.com" "$U/ra/tree.html" | grep -q TREE-RA'
 check "带查询串与锚点照常"                 '[ "$(code "${ME[@]}" "$U/ra/tree.html?x=1")" = 200 ]'
 check "站点：总览、研究与工程项目页、节点页 200" 'curl -s "${ME[@]}" "$U/site/" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/index.html" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/p/ra.html" | grep -q SITE-RA && curl -s "${ME[@]}" "$U/site/p/nt.html" | grep -q SITE-NT && curl -s "${ME[@]}" "$U/site/p/ra/H1.html?theme=dark" | grep -q SITE-H1'
+check "站点：journal 条目页 200（J+YYMMDD-序号）" 'curl -s "${ME[@]}" "$U/site/p/nt/J260927-3.html" | grep -q SITE-J && [ "$(code "${ME[@]}" "$U/site/p/nt/J2026-09-27.3.html")" = 404 ] && [ "$(code "${ME[@]}" "$U/site/p/nt/J260927-0.html")" = 404 ]'
 check "站点也要白名单身份"                  '[ "$(code "$U/site/p/ra.html")" = 403 ]'
 for p in /../ /ra/../research.html /%2e%2e/research.html /ra/%2e%2e/ra/tree.html /ra%2ftree.html /ra/state.md /ra/journal.md /ra/tree/ /nope/tree.html /nt/tree.html /evil/tree.html /ln/tree.html /.serve.conf //etc/passwd /RA/tree.html /site /site/.pt-site /site/p/gone.html /site/p/evil.html /site/p/ra/H2.html /site/p/ra/notes.txt /site/p/ra/H9.html /site/p/ra/../ra.html /site/p/ra/%2e%2e/ra.html /site/p/ra/E1.html /site/p/ra.html/; do
   check "拒绝 $p"                          '[ "$(code "${ME[@]}" "$U$p")" = 404 ]'

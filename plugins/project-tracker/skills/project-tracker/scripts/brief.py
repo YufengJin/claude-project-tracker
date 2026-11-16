@@ -7,7 +7,7 @@
 各块定长，不随档案变大（数据都来自 records.load）：
   lint 告警 ≤5 行 → state（合格的整段，≤3 KB；不合格的只取一句话、焦点 / 现在在哪 / 进行中、下一步、待拍板四类小节，
   共 ≤3 KB，其余给去处）→ 焦点问题的当前认识 ≤2 KB（离焦点最近的问题先放，按条放，放不下的给 pt get）→ 条件 ≤8 行
-  → 最近 5 张卡各一行（工程项目：journal 最近 5 条标题）→ 前沿：各状态计数加 ≤10 个标题 → journal 最近 3 条标题（研究项目）
+  → 最近 5 张卡各一行（研究项目含有卡的 journal 结果条目；工程项目：有卡的结果条目取结论行，一条卡都没有才列 journal 最近 5 条标题）→ 前沿：各状态计数加 ≤10 个标题 → journal 最近 3 条标题（研究项目）
   → 去哪找。总量超出预算时只让当前认识让位（按条），其余块本来就定长。
 """
 import datetime as dt
@@ -199,6 +199,11 @@ def recent_block(rec, slug, L):
             tag = "" if r["card_src"] == "card" else "（摘）"
             lines.append(f"- {r['id']} [{r['shown']}] {r['date'][5:] or '?'} {cut(r['title'], tw)} — {tag}{cut(r['line'], lw)}")
         return block(f"最近有结论的 {len(rs)} 个（新→旧；（摘）= 没写短卡，程序摘的原文）", lines or ["(还没有关闭的节点)"])
+    cards = [r for r in rec["recent"] if r["card_src"] == "card"][:nrecent]
+    if cards:  # 没有研究树：有卡的结果条目取卡的结论行
+        lines = [f"- {r['id']} {r['date'][5:] or '?'} {cut(r['title'], tw)} — {cut(r['line'], lw)}" for r in cards]
+        return block(f"最近有结论的 {len(cards)} 条（journal 里有卡的结果条目，按结果日期新→旧；卡与原文 pt get {slug} <J编号>）",
+                     lines)
     lines = [f"- {r['id']} [{r['shown'] or '旧格式'}] {cut(r['title'], lw + tw)}" for r in rs]
     return block(f"journal 最近 {len(rs)} 条结果 / 决定（新→旧；正文 pt get {slug} <J编号>）", lines or ["(无)"])
 
@@ -235,7 +240,7 @@ def front_block(rec, slug, L):
 
 def where_block(rec, d, ctx):
     s = rec["slug"]
-    rows = [("单条", f"pt get {s} <编号>（节点、台账第一列、ADR-xxxx、G1、J日期.序号；卡+台账行+指针，长的分页）"),
+    rows = [("单条", f"pt get {s} <编号>（节点、台账第一列、ADR-xxxx、G1、J+YYMMDD-序号如 J260927-3；卡+台账行+指针，长的分页）"),
             ("按词找", f"pt find {s} <词> …（目录 index.tsv）"), ("条件", f"pt conditions {s}")]
     if rec["kind"] == "research":
         rows.append(("已关按日期 / 全图", f"pt results {s} / pt tree {s}"))
@@ -249,7 +254,8 @@ def where_block(rec, d, ctx):
     cold = [x for x in ("archive", "briefs", "reviews", "references", "artifacts", "pages") if os.path.isdir(os.path.join(d, x))]
     if cold:
         rows.append(("冷存储（平时不读）", "、".join(x + "/" for x in cold)))
-    rows.append(("journal 新条目", "## [YYYY-MM-DD] 类别 | 节点或线程 | 一句话（" + "、".join(journal.CATEGORIES) + "）"))
+    rows.append(("journal 新条目", "## [YYYY-MM-DD] 类别 | 节点或线程 | 一句话（" + "、".join(journal.CATEGORIES) + "）；"
+                 "「结果」条目正文第一段写卡：目的：/怎么做：/结果：/结论：四行，≤600 B"))
     return block(f"去哪找（文件在 {d}/）", [f"- {a}：{b}" for a, b in rows])
 
 

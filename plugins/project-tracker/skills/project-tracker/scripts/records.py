@@ -31,9 +31,15 @@ load(d) 返回（字段缺就是空串、空表或 None，不猜）：
   "measurements": {问题 ID: [key]}（只挂在问题节点上、不挂假设的台账行）,
   "conditions" 里另有 "orphans": [点名了 charter 里没有的条件的判定],
   "tree": tree.Tree（研究项目）| None（给要原文的调用者，例如取「当前认识」）,
-  "recent": [{"id", "kind", "date", "title", "line"}]（有结论的，新→旧：研究项目是已关节点，工程项目是 journal「结果」「决定」条目）,
+  "recent": [{"id", "kind", "date", "title", "line", "shown", "card_src"}]（有结论的，新→旧：研究项目是已关节点加有卡的
+             journal「结果」条目，工程项目是 journal「结果」「决定」与旧格式条目；有卡的 line 取卡的结论）,
   "adrs": [{"id", "title", "date", "status", "where", "lineno"}],
-  "journal": [{"id": "J2026-11-16.1", "date", "category", "title", "where", "lineno"}],
+  "journal": [{"id": "J261116-1"（规则见 JOURNAL_ID_RULE）, "alias": 旧写法 "J2026-11-16.1", "date", "category": 类别或 None（旧格式）,
+               "title", "thread", "headline": 标题里的一句话（旧格式 = title）, "card": {"目的", "怎么做", "结果", "结论"} 或 None
+               （正文第一段是四行卡时）, "card_bytes", "orig": 卡后「原始记录：」那行, "first": 没有卡时正文的第一句,
+               "covers": [补记点名的旧条目编号], "covered_by": [补记了它的条目编号], "file", "where", "lineno", "end", "text": 原文}]
+             （月归档 archive/journal-YYYY-MM.md 在前、journal.md 在后）,
+  "jalias": {别名: 编号}（旧写法与不带年份的写法）,
   "glossary": {编号: 标题}（节点、台账行、ADR、条件）,
 }
 """
@@ -64,6 +70,13 @@ MAX_WORDS = ("≥", ">=", ">", "不低于", "至少", "以上", "不小于", "�
 CORR_PARA = re.compile(r"^\**[^\s：:，,。]{0,6}更正[^：:\n]{0,60}?[：:]\**\s*")
 ID_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])((?:ADR-\d+)|[QHEG]\d+[a-z]?)(?![A-Za-z0-9_])")
 INDEX_COLS = ("编号", "类型", "状态", "日期", "标题", "一行结果", "位置")
+JOURNAL_ARCH = re.compile(r"^journal-(\d{4}-\d{2})\.md$")
+ORIG_HEAD = re.compile(r"^\s*(?:[-*+]\s+)?\**原始记录\**\s*[：:]\s*")
+J_TOKEN = re.compile(r"(?<![A-Za-z0-9_])(J\d{6}-\d+|J\d{4}-\d{2}-\d{2}\.\d+|J\d{4}-\d+)(?![\d-])")
+JOURNAL_ID_RULE = ("journal 条目编号 = J + 标题日期的 YYMMDD + - + 这个日期的第几条（J260927-3）；同一日期的条目按 "
+                   "archive/journal-YYYY-MM.md 在前、journal.md 在后的出现顺序数。journal 只在末尾追加、归档整月原样搬走，"
+                   "所以已有编号不变（补记条目用结果发生的日期，接着这个日期往后数）。旧写法 J2026-09-27.3 与不带年份的 "
+                   "J0927-3（唯一时）也认。")
 STATE_KEEP = (("一句话",), ("焦点", "研究树", "现在在哪", "进行中"), ("下一步",), ("待拍板", "等用户", "待用户"))
 
 
@@ -322,6 +335,29 @@ def direction(line):
     return ""
 
 
+def recommended(line):
+    """线没定时括号里写的推荐值：「待用户（推荐 ≤2 mm）」→「≤2 mm」；没有给空串。"""
+    m = re.search(r"推荐\s*[:：]?\s*(.+)$", line)
+    if not m or LINE_UNSET.match(line) is None:
+        return ""
+    t = m.group(1).strip()
+    if t.endswith(("）", ")")) and t.count("）") + t.count(")") > t.count("（") + t.count("("):
+        t = t[:-1].rstrip()
+    return "" if t.startswith("待定") else t
+
+
+def line_target(line, strict=False):
+    """线里的数：方向词后面紧跟的数（「p95 ≤ 2 mm」取 2，不取 95）；没有就取第一个数。
+    strict：只认「恰好一个方向词加数」，几个并列（头部 ≤3 mm / 腕部 ≤2 mm）就算不出。"""
+    pairs = re.findall(rf"(?:{'|'.join(map(re.escape, MIN_WORDS + MAX_WORDS))})\s*({NUM})", line)
+    if strict:
+        return num(pairs[0]) if len(pairs) == 1 else None
+    if pairs:
+        return num(pairs[0])
+    m = re.search(NUM, line)
+    return num(m.group(0)) if m else None
+
+
 def parse_conditions(charter):
     items, legacy = [], []
     for _k, lines in cond_sections(charter):
@@ -346,7 +382,8 @@ def parse_conditions(charter):
             line = fields.get("线", "")
             retired = "不再适用" in ln or text.startswith("~~")
             items.append({"id": cid, "text": clean(text.strip("~")), "line": line,
-                          "line_set": not LINE_UNSET.match(line), "ruler": fields.get("尺", ""),
+                          "line_set": not LINE_UNSET.match(line), "rec": recommended(line), "rec_target": None,
+                          "rec_gap": None, "ruler": fields.get("尺", ""),
                           "source": fields.get("来源", ""), "retired": retired, "direction": direction(line),
                           "status": "", "latest": None, "best": None, "judgments": [], "lineno": no,
                           "target": None, "gap": None,
@@ -369,8 +406,8 @@ def journal_judgments(entries):
             rest = m.group(6) or ""
             refs = [x for x in ID_TOKEN.findall(rest) if x != cid]
             out.append({"verdict": verdict, "cid": cid, "value": num(m.group(5)) if m.group(5) else None,
-                        "eid": refs[0] if refs else e["id"], "date": e["date"],
-                        "where": f"journal.md:{e['lineno'] + k}", "note": cut(rest, 80)})
+                        "eid": refs[0] if refs else e["id"], "date": e["date"], "entry": e["id"],
+                        "where": f"{e['file']}:{e['lineno'] + k}", "note": cut(rest, 80)})
     return out
 
 
@@ -389,12 +426,19 @@ def settle(items, judgments):
         else:
             passed = [j for j in js if j["verdict"] == "过"]
             c["best"] = passed[-1] if passed else None
-        m = re.search(NUM, c["line"]) if c["line_set"] and c["direction"] else None
-        c["target"] = num(m.group(0)) if m else None
+        c["target"] = line_target(c["line"]) if c["line_set"] and c["direction"] else None
         b = c["best"]
         if c["target"] is not None and b and b["value"] is not None:
             g = b["value"] - c["target"] if c["direction"] == "min" else c["target"] - b["value"]
             c["gap"] = max(g, 0.0)
+        rd = direction(c["rec"])  # 线没定、有推荐线：只算「对推荐线差多少」，状态不因此变
+        if c["rec"] and rd:
+            vals = [j for j in js if j["value"] is not None]
+            rb = (min if rd == "min" else max)(vals, key=lambda j: j["value"]) if vals else None
+            c["rec_target"] = line_target(c["rec"], strict=True)
+            if c["rec_target"] is not None and rb:
+                g = rb["value"] - c["rec_target"] if rd == "min" else c["rec_target"] - rb["value"]
+                c["rec_gap"] = max(g, 0.0)
         if c["retired"]:
             c["status"] = "不再适用"
         elif not c["line_set"]:
@@ -408,26 +452,94 @@ def settle(items, judgments):
 
 # ---------- journal 与 ADR ----------
 
+def jid_of(date, n):
+    """journal 条目编号：J + 标题日期的 YYMMDD + - + 该日期的第几条（J260927-3）。"""
+    return f"J{date[2:4]}{date[5:7]}{date[8:10]}-{n}"
+
+
+def journal_files(d):
+    """按编号的数法排好的 journal 文件：archive/journal-YYYY-MM.md（按月）在前，journal.md 在后。"""
+    adir = os.path.join(d, "archive")
+    arch = sorted(f for f in os.listdir(adir) if JOURNAL_ARCH.match(f)) if os.path.isdir(adir) else []
+    return [f"archive/{f}" for f in arch] + ["journal.md"]
+
+
 def journal_entries(d):
-    pre, entries = jmod.split(jmod.read_raw(os.path.join(d, "journal.md")))
-    out, line, per = [], pre.count("\n") + 1, {}
-    for e in entries:
-        h = jmod.head(e)
-        m = re.match(r"^## \[?(\d{4}-\d{2}-\d{2})\]?", h)
-        anyd = m or lint.FULL_DATE.search(h)
-        date = (m.group(1) if m else anyd.group(0)) if anyd else ""
-        per[date] = per.get(date, 0) + 1
-        jid = f"J{date}.{per[date]}" if date else f"J#{len(out) + 1}"
-        nm = jmod.NEW_HEAD.match(h)
-        if nm:
-            parts = h.split(" | ", 2)
-            title = " | ".join(parts[1:])
-        else:
-            title = re.sub(r"^## \[?\d{4}-\d{2}-\d{2}\]?\s*[·:：-]?\s*", "", h) if m else h[3:]
-        out.append({"id": jid, "date": date, "category": jmod.category(e), "title": clean(title),
-                    "where": f"journal.md:{line}", "lineno": line, "text": e})
-        line += e.count("\n")
+    """全部 journal 条目（月归档在前、journal.md 在后，各按文件顺序）。编号规则见 JOURNAL_ID_RULE。"""
+    out, per, undated = [], {}, 0
+    for rel in journal_files(d):
+        pre, entries = jmod.split(jmod.read_raw(os.path.join(d, rel)))
+        line = pre.count("\n") + 1
+        for e in entries:
+            h = jmod.head(e)
+            m = re.match(r"^## \[?(\d{4}-\d{2}-\d{2})\]?", h)
+            anyd = m or lint.FULL_DATE.search(h)
+            date = (m.group(1) if m else anyd.group(0)) if anyd else ""
+            if date:
+                per[date] = per.get(date, 0) + 1
+                jid, alias = jid_of(date, per[date]), f"J{date}.{per[date]}"
+            elif rel == "journal.md":
+                undated += 1
+                jid, alias = f"J#{undated}", ""
+            else:  # 月归档里认不出日期的（不该有）：不编号
+                line += e.count("\n")
+                continue
+            nm = jmod.NEW_HEAD.match(h)
+            thread = headline = ""
+            if nm:
+                parts = h.split(" | ", 2)
+                title = " | ".join(parts[1:])
+                thread, headline = clean(parts[1]) if len(parts) > 1 else "", clean(parts[2]) if len(parts) > 2 else ""
+            else:
+                title = re.sub(r"^## \[?\d{4}-\d{2}-\d{2}\]?\s*[·:：-]?\s*", "", h) if m else h[3:]
+            body = e.split("\n", 1)[1] if "\n" in e else ""
+            body_nc = tree.strip_comments(body)
+            card = tree.card_text(body_nc)
+            orig = next((ORIG_HEAD.sub("", ln).strip() for ln in body_nc.split("\n") if tree.ORIG_LINE.match(ln)), "")
+            rest = body_nc
+            if card:  # 第一句取卡之后的正文（卡已经单独给出）
+                parts = re.split(r"\n\s*\n", body_nc.strip("\n"), maxsplit=1)
+                rest = parts[1] if len(parts) > 1 else ""
+            out.append({"id": jid, "alias": alias, "date": date, "category": jmod.category(e), "title": clean(title),
+                        "thread": thread, "headline": headline or clean(title),
+                        "card": card, "card_bytes": len("\n".join(tree.card_para(body_nc)).encode()) if card else 0,
+                        "orig": clean(orig), "first": "" if card else first_line(rest),
+                        "file": rel, "where": f"{rel}:{line}", "lineno": line,
+                        "end": line + e.rstrip("\n").count("\n"), "text": e, "covers": [], "covered_by": []})
+            line += e.count("\n")
     return out
+
+
+def first_line(text):
+    """正文第一句：第一行（去列表记号）的头一句，太短（不到 8 个字）才带上下一句。"""
+    ln = next((x for x in text.split("\n") if x.strip() and not x.lstrip().startswith(("#", "<!--"))), "")
+    return lead(ln, 160, short=8)
+
+
+def journal_aliases(entries):
+    """别名 → 编号：旧写法 J2026-09-27.3 与不带年份的 J0927-3（只在各年里唯一时）。"""
+    out, short = {}, {}
+    for e in entries:
+        if e["alias"]:
+            out[e["alias"]] = e["id"]
+            short.setdefault("J" + e["id"][3:], []).append(e["id"])
+    for k, v in short.items():
+        if len(v) == 1:
+            out.setdefault(k, v[0])
+    return out
+
+
+def link_orig(entries, aliases):
+    """补记条目「原始记录：」里点名的旧条目：补记.covers = [旧编号]，旧条目.covered_by = [补记编号]。"""
+    by = {e["id"]: e for e in entries}
+    for e in entries:
+        if not e["orig"]:
+            continue
+        for tok in J_TOKEN.findall(e["orig"]):
+            x = tok if tok in by else aliases.get(tok)
+            if x and x != e["id"] and x not in e["covers"]:
+                e["covers"].append(x)
+                by[x]["covered_by"].append(e["id"])
 
 
 def adr_list(d):
@@ -548,6 +660,8 @@ def load(d, today=None):
                     rec["measurements"].setdefault(x, []).append(k)
     items, legacy = parse_conditions(charter)
     entries = journal_entries(d)
+    rec["jalias"] = journal_aliases(entries)
+    link_orig(entries, rec["jalias"])
     js = [j for k in order for j in rows[k]["judgments"]] + journal_judgments(entries)
     orphan = settle(items, js)
     rec["conditions"] = {"registered": bool(items), "items": items, "legacy": [] if items else legacy,
@@ -556,7 +670,12 @@ def load(d, today=None):
     rec["pending"] = pending_items(rec["state"]["raw"])
     rec["activity"] = activity(d, today)
     rec["terms"] = terms_of(charter)
-    rec["journal"] = [{k: v for k, v in e.items() if k != "text"} for e in entries]
+    rec["journal"] = entries
+    jrec = [{"id": e["id"], "kind": "J", "date": e["date"], "title": e["headline"],
+             "line": (e["card"] or {}).get("结论") or e["headline"], "shown": e["category"] or "",
+             "card_src": "card" if e["card"] else "", "order": k} for k, e in enumerate(entries)
+            if e["category"] in ("结果", "决定", None)]  # None = 旧格式标题
+    jrec.sort(key=lambda x: (x["date"] or "", x["order"]), reverse=True)
     if t is not None:
         closed = [x for x in rec["nodes"].values() if x["status"] == "closed"]
         closed.sort(key=lambda x: tree.id_key(x["id"]), reverse=True)
@@ -564,10 +683,11 @@ def load(d, today=None):
         rec["recent"] = [{"id": x["id"], "kind": x["kind"], "date": x["date"], "title": x["title"],
                           "line": x["card"].get("结论") or x["card"].get("结果", ""), "shown": x["shown"],
                           "card_src": x["card_src"]} for x in closed]
+        cj = [x for x in jrec if x["card_src"] == "card" and x["shown"] == "结果"]  # 研究项目里有卡的结果条目也算
+        if cj:
+            rec["recent"] = sorted(rec["recent"] + cj, key=lambda x: x["date"] or "9999", reverse=True)
     else:
-        pick = [e for e in rec["journal"] if e["category"] in ("结果", "决定", None)]  # None = 旧格式标题
-        rec["recent"] = [{"id": e["id"], "kind": "J", "date": e["date"], "title": e["title"], "line": e["title"],
-                          "shown": e["category"] or "", "card_src": ""} for e in reversed(pick)]
+        rec["recent"] = jrec
     g = rec["glossary"]
     for i, n in rec["nodes"].items():
         g[i] = n["title"]
@@ -577,6 +697,8 @@ def load(d, today=None):
         g.setdefault(a["id"], a["title"])
     for c in items:
         g.setdefault(c["id"], c["text"])
+    for e in entries:
+        g.setdefault(e["id"], e["headline"])
     return rec
 
 
@@ -606,7 +728,8 @@ def index_rows(rec):
     for a in rec["adrs"]:
         out.append((a["id"], "ADR", a["status"], a["date"], a["title"], "", a["where"]))
     for e in rec["journal"]:
-        out.append((e["id"], "journal", e["category"] or "", e["date"], e["title"], "", e["where"]))
+        out.append((e["id"], "journal", e["category"] or "", e["date"], e["title"],
+                    cut((e["card"] or {}).get("结论") or e["headline"], 120), e["where"]))
     return out
 
 

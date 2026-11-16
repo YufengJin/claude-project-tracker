@@ -6,9 +6,11 @@
 写静态站点（默认 <档案根>/site/，pt serve 发在 /site/ 下）：
   index.html             全部项目：等你拍板几件、最近有结论的实验、每个项目一行（现状；研究配判词色条与近两周判完几个，
                          登记了条件的配「条件过 x/y」）
-  p/<slug>.html          项目页：现在、下一步、等你拍板、条件表、最近有结论的实验；研究项目按问题分组（探索卡、
-                         最近 5 张实验卡、其余一行一个，可筛）；工程项目放最近的结果与决定
+  p/<slug>.html          项目页：现在、下一步、等你拍板、条件表（线没定时显示推荐线与对推荐线差多少）、最近有结论的实验；
+                         研究项目按问题分组（问题卡作整支摘要、最近 5 张有卡的实验卡，没卡的旧节点一行一个，可筛）；
+                         工程项目放最近的结果（有卡的 journal 结果条目四行卡，其余一行：标题加正文第一句）与决定
   p/<slug>/<编号>.html   节点页：判定徽章与卡；证据（挂着的台账行）、事先定的判据、节点原文；本页编号与术语释义
+  p/<slug>/<J编号>.html  journal 条目页（有卡的、条件判定所在的；工程项目是全部带日期的条目）：卡在上，条目原文在下
 项目页上编号尽量换成标题（纯编号的括注换成一个「证据」链接），长的原文、判据、台账明细只在节点页。
 整站先写进临时目录再整体换上；站点目录里有标记文件 .pt-site，--out 指向已有的别的目录时拒绝覆盖。
 取不到的写「未记录」；内网地址、口令类字符串在页面上隐去。
@@ -32,6 +34,8 @@ MARK = ".pt-site"
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 RECENT_DAYS = 14
 CARDS_PER_Q = 5
+RESULT_CARDS = 8      # 工程项目「最近的结果」最多展开几张卡
+RESULT_LINES = 12     # 其余一行一个，最多几行
 CELL_MAX = 3000
 ROWS_MAX = 300
 RAW_MAX = 200_000
@@ -39,7 +43,7 @@ PAGE_MAX = 1_000_000
 TEXT_BUDGET = 22_500  # 项目页的文字量（约 15 屏 × 1500 字）；超了就把已答问题下的实验收成一行一个
 
 SHOWN_CLS = {"成立": "ok", "不成立": "bad", "没定论": "mid", "未跑": "grey", "被取代": "grey", "放弃": "grey",
-             "已答": "done", "未答": "live", "在做": "live", "待做": "grey", "搁置": "grey"}
+             "已答": "done", "未答": "live", "在做": "live", "待做": "grey", "搁置": "grey", "结果": "done"}
 COND_CLS = {"过": "ok", "不过": "bad", "未测": "grey", "线未定": "mid", "不再适用": "grey"}
 FILTER = {"active": "在做", "closed": "已判", "parked": "搁置", "open": "待做"}
 VOCAB = {
@@ -120,7 +124,10 @@ class Ref:
             self.host_of.setdefault(r["id"], (host, k))
         self.adr = {a["id"]: a["title"] for a in rec["adrs"]}
         self.cond = {c["id"]: c["text"] for c in rec["conditions"]["items"]}
-        toks = set(nodes) | set(self.host_of) | set(self.adr) | set(self.cond)
+        pages = entry_pages(rec)
+        self.jmap = {i: i for i in pages}  # 正文里的 journal 编号（含旧写法）→ 有页面的条目
+        self.jmap.update({a: i for a, i in rec.get("jalias", {}).items() if i in pages})
+        toks = set(nodes) | set(self.host_of) | set(self.adr) | set(self.cond) | set(self.jmap)
         toks = sorted((t for t in toks if t and t != "?"), key=len, reverse=True)
         self.rx = self.tok = None
         if toks:
@@ -134,6 +141,8 @@ class Ref:
     def gloss(self, t):
         if t in self.rec["nodes"]:
             return self.rec["nodes"][t]["title"]
+        if t in self.jmap:
+            return self.rec["glossary"].get(self.jmap[t], "")
         if t in self.adr:
             return self.adr[t]
         if t in self.cond:
@@ -145,6 +154,8 @@ class Ref:
             return f"{self.node_base}{t}.html"
         if t in self.cond:
             return f"{self.proj}#cond-{t}"
+        if t in self.jmap:
+            return f"{self.node_base}{self.jmap[t]}.html"
         if t in self.host_of:
             host, key = self.host_of[t]
             return f"{self.node_base}{host}.html#row-{key}" if host else ""
@@ -153,7 +164,7 @@ class Ref:
     def link(self, t, text=None, cls="ref"):
         g = self.gloss(t)
         if self.mode == "id":
-            self.seen[t] = g
+            self.seen[self.jmap.get(t, t)] = g
         h = self.href(t)
         title = esc(f"{t}：{cut(g, 140)}" if g else t)
         body = esc(t) if text is None else text
@@ -172,6 +183,8 @@ class Ref:
             return self.link(t, "决定「" + esc(cut(self.adr[t], 14)) + "」")
         if t in self.cond:
             return self.link(t, "条件「" + esc(cut(self.cond[t], 12)) + "」")
+        if t in self.jmap:
+            return self.link(t, "记录 " + esc(jdate(self.jmap[t])), "ev")
         return self.link(t, "证据", "ev")
 
     def evidence(self, ids, host):
@@ -334,7 +347,7 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--acc)}
 .bar i{display:block;height:100%}.bar .ok{background:var(--ok)}.bar .bad{background:var(--bad)}.bar .mid{background:var(--mid)}
 .bar .grey{background:var(--grey);opacity:.55}.bar .dim{background:var(--grey);opacity:.25}
 .proj .pn{font-weight:600}.proj .now{margin:2px 0}
-table.cond td.st{white-space:nowrap}
+table.cond td.st,table.cond th,table.cond td[data-l="日期"]{white-space:nowrap}.evn{display:inline-block;max-width:14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 @media (max-width:640px){table.cond,table.cond tbody,table.cond tr,table.cond td{display:block;width:100%}
 table.cond thead{display:none}table.cond tr{border:1px solid var(--line);border-radius:8px;margin:8px 0;padding:4px 8px;background:var(--card)}
 table.cond td{border:0;padding:1px 0}table.cond td.e{display:none}table.cond td.st{display:inline-block;margin-top:2px}table.cond td[data-l]::before{content:attr(data-l) "：";color:var(--mut)}
@@ -406,18 +419,43 @@ def cond_counts(rec):
 
 
 def jval(j):
+    """最近 / 最好两列只写数；没有数的判定（过 / 不过写在状态列）写「—」。"""
+    return f"{j['value']:g}" if j and j["value"] is not None else "—"
+
+
+def jdate(jid):
+    """J260927-3 → 09-27。"""
+    m = re.match(r"^J\d{2}(\d{2})(\d{2})-", jid)
+    return f"{m.group(1)}-{m.group(2)}" if m else jid
+
+
+def ev_link(rec, R, j):
+    """证据格：台账行给链接；journal 判定给证据原文（一行，点进条目页）。"""
     if not j:
         return "—"
-    return j["verdict"] + (f" {j['value']:g}" if j["value"] is not None else "")
+    note, entry = j.get("note") or "", j.get("entry") or ""
+    if entry:
+        text = R.plain(note, 28) if note else "记录 " + esc(jdate(entry))
+        href = f"{R.node_base}{entry}.html" if entry in entry_pages(rec) else ""
+        tip = esc(f"{entry}：{note}" if note else entry)
+        return f'<a class="evn" href="{href}" title="{tip}">{text}</a>' if href else f'<span class="evn" title="{tip}">{text}</span>'
+    return R.human(j["eid"]) if j["eid"] else "—"
 
 
-def ev_link(rec, R, eid):
-    if not eid:
-        return "—"
-    if eid.startswith("J"):
-        m = re.match(r"^J(\d{4}-\d{2}-\d{2})", eid)
-        return f'<span title="{esc(eid)}">journal {esc(mmdd(m.group(1)) if m else eid)}</span>'
-    return R.link(eid)
+def line_cell(x):
+    if x["line_set"]:
+        return esc(x["line"])
+    if x["rec"]:
+        return badge("线未定", "mid") + f' <span title="{esc(x["line"])}">待用户定，推荐 {esc(cut(x["rec"], 40))}</span>'
+    return badge("线未定", "mid")
+
+
+def gap_cell(x):
+    if x["line_set"]:
+        return "—" if x["gap"] is None else ("已到线" if x["gap"] == 0 else f"差 {x['gap']:g}")
+    if x["rec_gap"] is not None:
+        return "已到推荐线" if x["rec_gap"] == 0 else f"对推荐线差 {x['rec_gap']:g}"
+    return "—"
 
 
 def cond_table(rec, R):
@@ -430,22 +468,17 @@ def cond_table(rec, R):
     rows = []
     for x in c["items"]:
         lt, best = x["latest"], x["best"]
-        line = esc(x["line"]) if x["line_set"] else badge("线未定", "mid")
-        if not x["line_set"]:
-            gap = "—"
-        elif x["gap"] is None:
-            gap = "—"
-        else:
-            gap = "已到线" if x["gap"] == 0 else f"差 {x['gap']:g}"
+        line, gap = line_cell(x), gap_cell(x)
         tip = esc(f"{x['id']}；尺：{x['ruler'] or '未记录'}；来源：{x['source'] or '未记录'}" + (f"；格式：{x['bad']}" if x["bad"] else ""))
         cells = [("最近", esc(jval(lt))), ("最好", esc(jval(best))), ("线", line), ("差多少", esc(gap)),
-                 ("证据", ev_link(rec, R, lt["eid"]) if lt else "—"),
+                 ("证据", ev_link(rec, R, lt)),
                  ("日期", esc(mmdd(lt["date"])) if lt and lt["date"] else "—")]
         rows.append(f'<tr id="cond-{esc(x["id"])}"><td title="{tip}">{inline(x["text"])}</td>'
                     f'<td class="st">{badge(x["status"], COND_CLS.get(x["status"]))}</td>' +
                     "".join(f'<td data-l="{k}"{" class=e" if v == "—" else ""}>{v}</td>' for k, v in cells) + "</tr>")
     ok, n = cond_counts(rec)
-    return (f'<p class="muted">过 {ok}/{n}。状态只从点名该条件的判定里算；最好值按线的方向取。</p>'
+    return (f'<p class="muted">过 {ok}/{n}。状态只从点名该条件的判定里算；最近、最好两列是判定里的数，最好值按线的方向取；'
+            '线没定时差多少只对推荐线算，状态仍是「线未定」。</p>'
             '<div class="tw"><table class="cond"><thead><tr><th>条件</th><th>状态</th><th>最近</th><th>最好</th><th>线</th>'
             '<th>差多少</th><th>证据</th><th>日期</th></tr></thead><tbody>' + "".join(rows) + "</tbody></table></div>")
 
@@ -489,6 +522,16 @@ def h_card(n, R):
             f'<span>{esc(mmdd(n["date"]))}</span>{flags(n)}</div>'
             f'<a class="ct" href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(n["title"], 60)}</a>'
             f'{card_rows(n, R, i)}</article>')
+
+
+def q_summary(q, R):
+    """问题分组最上面的整支摘要：有卡给目的、结果两行；没卡给一行原文摘取的结果。"""
+    if q["card_src"] == "card":
+        return f'<div class="card">{card_rows(q, R, q["id"])}</div>'
+    res = q["card"].get("结果", "")
+    if not res:
+        return ""
+    return (f'<p class="muted">结果（原文摘取）：{inline(cut(res, 110), R, q["id"])}</p>')
 
 
 def h_line(n, R):
@@ -539,14 +582,16 @@ def groups_html(rec, R, expand_answered=True):
              f'<h3><a href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(q["title"], 90)}</a></h3>']
         if par:
             s.append(f'<div class="muted">属于：<a href="#g-{esc(par["id"])}">{R.plain(par["title"], 30)}</a></div>')
-        s.append(f'<div class="card">{card_rows(q, R, i, ext_cut=160)}</div>')
+        s.append(q_summary(q, R))
         if hs:
             s.append('<div class="muted" style="margin-top:6px">实验 ' + str(len(hs)) + " 个：" +
                      esc("、".join(f"{k} {v}" for k, v in cnt.items())) + "</div>")
             k = CARDS_PER_Q if expand_answered or q["status"] != "closed" else 0
-            s.extend(h_card(n, R) for n in hs[:k])
-            if hs[k:]:
-                s.append('<ul class="ls">' + "".join(h_line(n, R) for n in hs[k:]) + "</ul>")
+            full = [n for n in hs if n["card_src"] == "card"][:k]  # 有卡的最近几张展开；没卡的旧节点只占一行
+            s.extend(h_card(n, R) for n in full)
+            rest = [n for n in hs if n not in full]
+            if rest:
+                s.append('<ul class="ls">' + "".join(h_line(n, R) for n in rest) + "</ul>")
         if subq:
             s.append('<div class="muted" style="margin-top:6px">子问题：' + "、".join(
                 f'<a href="#g-{esc(x["id"])}" title="{esc(x["id"])}">{R.plain(x["title"], 24)}</a>（{esc(x["shown"])}）'
@@ -559,10 +604,10 @@ def groups_html(rec, R, expand_answered=True):
         out.append("".join(s))
     loose = h_order([n for n in nodes.values() if n["kind"] == "H" and n["parent"] not in nodes])
     if loose:
-        out.append('<section class="grp" data-s=""><h3>没挂在问题下的实验</h3>' +
-                   "".join(h_card(n, R) for n in loose[:CARDS_PER_Q]) +
-                   ('<ul class="ls">' + "".join(h_line(n, R) for n in loose[CARDS_PER_Q:]) + "</ul>" if loose[CARDS_PER_Q:] else "") +
-                   "</section>")
+        full = [n for n in loose if n["card_src"] == "card"][:CARDS_PER_Q]
+        rest = [n for n in loose if n not in full]
+        out.append('<section class="grp" data-s=""><h3>没挂在问题下的实验</h3>' + "".join(h_card(n, R) for n in full) +
+                   ('<ul class="ls">' + "".join(h_line(n, R) for n in rest) + "</ul>" if rest else "") + "</section>")
     return "".join(out)
 
 
@@ -590,13 +635,14 @@ def project_page(rec, today, tree_href, note):
         s.append('<p class="muted">state 里没有待拍板的条目。</p>')
     s.append("<h2>条件</h2>" + cond_table(rec, R))
     if research:
-        rc = [x for x in rec["recent"] if x["kind"] == "H"][:5]
+        rc = [x for x in rec["recent"] if x["kind"] in ("H", "J")][:5]
         s.append("<h2>最近有结论的实验</h2>")
-        if rc:
+        if rc:  # 标题加卡的结论行；没卡的只给标题（摘出来的首句常常不成其为结论）
             s.append('<ul class="ls">' + "".join(
                 f'<li>{badge(x["shown"])} <span class="muted">{esc(mmdd(x["date"]))}</span> '
                 f'<a href="{R.node_base}{x["id"]}.html" title="{esc(x["id"])}">{R.plain(x["title"], 36)}</a>'
-                f'{"：" + inline(cut(x["line"], 80), R, x["id"]) if x["line"] else ""}</li>' for x in rc) + "</ul>")
+                f'{"：" + inline(cut(x["line"], 90), R, x["id"]) if x["line"] and x["card_src"] == "card" else ""}</li>'
+                for x in rc) + "</ul>")
         else:
             s.append('<p class="muted">还没有关闭的实验。</p>')
         s.append('<h2>按问题看</h2><div class="flt"><button class="on" data-f="all">全部</button>'
@@ -612,11 +658,7 @@ def project_page(rec, today, tree_href, note):
         if loose:
             s.append(f'<p class="muted">台账里另有 {len(loose)} 行没挂到节点（见 experiments.md）。</p>')
     else:
-        res = [e for e in reversed(rec["journal"]) if e["category"] in ("结果", None)][:8]
-        s.append("<h2>最近的结果</h2>")
-        s.append('<ul class="ls">' + "".join(f'<li><span class="muted">{esc(mmdd(e["date"]) or "日期未记录")}</span> '
-                                             f'{inline(cut(e["title"], 90), R)}</li>' for e in res) + "</ul>"
-                 if res else '<p class="none">journal 里没有结果类条目</p>')
+        s.append("<h2>最近的结果</h2>" + results_html(rec, R))
         dec = [(a["date"], a["lineno"], a["title"], "") for a in rec["adrs"]]
         dec += [(e["date"], e["lineno"], e["title"], "journal") for e in rec["journal"] if e["category"] == "决定"]
         dec.sort(key=lambda x: (x[0] or "", x[1]), reverse=True)
@@ -625,6 +667,94 @@ def project_page(rec, today, tree_href, note):
                                              f'{inline(cut(t, 90), R)}</li>' for d, _n, t, _k in dec[:5]) + "</ul>"
                  if dec else '<p class="none">还没有记下的决定</p>')
     return page(rec["name"] or rec["slug"], "\n".join(s), note)
+
+
+def results_html(rec, R):
+    """工程项目「最近的结果」：journal「结果」与旧格式条目按结果日期新→旧；有卡的前 RESULT_CARDS 条四行卡，
+    其余一行一个（标题加正文第一句），共 RESULT_LINES 行，每条链到自己的条目页。"""
+    order = {e["id"]: k for k, e in enumerate(rec["journal"])}
+    res = [e for e in rec["journal"] if e["category"] in ("结果", None) and e["date"]]
+    res.sort(key=lambda e: (e["date"], order[e["id"]]), reverse=True)
+    if not res:
+        return '<p class="none">journal 里没有结果类条目</p>'
+    pages = entry_pages(rec)
+    cards = [e for e in res if e["card"]][:RESULT_CARDS]
+    out = [j_card(e, R) for e in cards]
+    rest = [e for e in res if e not in cards]
+    lines = []
+    for e in rest[:RESULT_LINES]:
+        title = e["headline"] if e["category"] else e["title"]
+        body = f'<a href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(title, 60))}</a>' \
+            if e["id"] in pages else inline(cut(title, 60))
+        first = (e["card"] or {}).get("结论") or e["first"]
+        more = f'：{inline(cut(first, 90), R)}' if first and first != title else ""
+        cov = f' <span class="muted">（已补卡 {len(e["covered_by"])} 张）</span>' if e["covered_by"] else ""
+        lines.append(f'<li><span class="muted">{esc(mmdd(e["date"]))}</span> {body}{more}{cov}</li>')
+    if lines:
+        out.append('<ul class="ls">' + "".join(lines) + "</ul>")
+    if len(rest) > RESULT_LINES:
+        out.append(f'<p class="muted">更早的 {len(rest) - RESULT_LINES} 条见 journal.md（pt get &lt;J编号&gt;）。</p>')
+    return "".join(out)
+
+
+def j_card(e, R):
+    return (f'<article class="card"><div class="ch">{badge("结果", "done")}<span>{esc(mmdd(e["date"]))}</span>'
+            f'{badge("补记", "grey") if e["thread"] == "补记" else ""}</div>'
+            f'<a class="ct" href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(e["headline"], 60))}</a>'
+            f'{j_rows(e, R)}</article>')
+
+
+def j_rows(e, R):
+    return '<dl class="f">' + "".join(f"<dt>{lab}</dt><dd>{inline(e['card'].get(lab, ''), R) or NONE}</dd>"
+                                      for lab in tree.CARD_LABELS) + "</dl>"
+
+
+def entry_pages(rec):
+    """有自己页面的 journal 条目：有卡的、条件判定所在的；工程项目另加全部带日期的条目。"""
+    if "_jpages" not in rec:
+        eng = rec["kind"] != "research"
+        judged = {j.get("entry") for c in rec["conditions"]["items"] for j in c["judgments"]}
+        rec["_jpages"] = {e["id"] for e in rec["journal"] if e["date"] and (eng or e["card"] or e["id"] in judged)}
+    return rec["_jpages"]
+
+
+def entry_page(rec, e, note):
+    """journal 条目页：卡在上，条目原文在下。"""
+    R = Ref(rec, "node", "id")
+    s = [f'<div class="crumb"><a href="../../index.html">全部项目</a> › <a href="../{rec["slug"]}.html">'
+         f'{esc(cut(rec["name"] or rec["slug"], 24))}</a> › journal</div>',
+         f'<h1>{esc(e["headline"]) or NONE}</h1>',
+         f'<div class="meta">{badge(e["category"] or "旧格式", "done" if e["category"] == "结果" else "grey")}'
+         f'<span>记录 {esc(e["id"])}</span><span>{esc(e["date"] or "日期未记录")}</span>'
+         f'<span>{esc(e["where"])}</span></div>']
+    if e["card"]:
+        s.append(f'<div class="card">{j_rows(e, R)}</div>')
+    rel = []
+    if e["covers"]:
+        rel.append("补记自：" + "、".join(R.link(x) for x in e["covers"]))
+    elif e["orig"]:
+        rel.append("原始记录：" + inline(e["orig"], R))
+    if e["covered_by"]:
+        rel.append("这条的补记卡：" + "、".join(R.link(x) for x in e["covered_by"]))
+    js = [j for c in rec["conditions"]["items"] for j in c["judgments"] if j.get("entry") == e["id"]]
+    if js:
+        rel.append("判定的条件：" + "、".join(f'{esc(j["verdict"])} {R.link(j["cid"])}' +
+                                          (f"={j['value']:g}" if j["value"] is not None else "") for j in js))
+    if rel:
+        s.append('<p class="muted">' + "<br>".join(rel) + "</p>")
+    body = e["text"].split("\n", 1)[1] if "\n" in e["text"] else ""
+    cutnote = ""
+    if len(body) > RAW_MAX:
+        body, cutnote = body[:RAW_MAX], '<p class="muted">原文太长，只给前面一部分；全文见档案。</p>'
+    s.append(f'<h2>条目原文</h2>{md(tree.strip_comments(body), R)}{cutnote}')
+    main = "\n".join(s)
+    gl = [f"<dt>{esc(k)}</dt><dd>{esc(cut(v, 160)) or '未记录'}</dd>" for k, v in sorted(R.seen.items())]
+    voc = [f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in vocab_html(rec, main)]
+    foot = ""
+    if gl or voc:
+        foot = "<h2>本页编号与术语</h2>" + (f'<dl class="gl">{"".join(gl)}</dl>' if gl else "") + \
+            (f'<dl class="gl">{"".join(voc)}</dl>' if voc else "")
+    return page(f"{e['id']} · {cut(e['headline'], 30)}", main + foot, note)
 
 
 # ---------- 节点页 ----------
@@ -742,7 +872,7 @@ def overview(recs, fails, today, research_href, note):
     rc = []
     for r in recs.values():
         for x in r["recent"]:
-            if x["kind"] == "H" and x["date"]:
+            if x["date"] and (x["kind"] == "H" or (x["kind"] == "J" and x["card_src"] == "card")):
                 rc.append((x["date"], r, x))
     rc.sort(key=lambda z: z[0], reverse=True)
     per, keep = {}, []
@@ -856,6 +986,11 @@ def build(root, out=None, slugs=None, today=None):
                 sizes[f"p/{slug}.html"] = write(os.path.join(tmp, "p", f"{slug}.html"), project_page(rec, today, href, note))
                 for i in rec["nodes"]:
                     sizes[f"p/{slug}/{i}.html"] = write(os.path.join(tmp, "p", slug, f"{i}.html"), node_page(rec, i, note))
+                pages = entry_pages(rec)
+                for e in rec["journal"]:
+                    if e["id"] in pages:
+                        sizes[f"p/{slug}/{e['id']}.html"] = write(os.path.join(tmp, "p", slug, f"{e['id']}.html"),
+                                                                  entry_page(rec, e, note))
             except Exception as e:
                 fails[slug] = f"渲染失败 {type(e).__name__}: {e}"
         big = max(sizes, key=sizes.get)

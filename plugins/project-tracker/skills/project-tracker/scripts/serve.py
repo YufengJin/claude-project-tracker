@@ -13,7 +13,7 @@
 
 只服务 /、/research.html、/<slug>/tree.html（slug 是档案根下真实目录、含 tree/、不是符号链接、文件不逃出档案根），
 以及给人看的站点 <档案根>/site/（pt site / pt monitor 生成，目录里要有 .pt-site 标记）：/site/、/site/index.html、
-/site/p/<slug>.html（研究与工程项目都有）、/site/p/<slug>/<Q|H 编号>.html（slug 同样要是档案根下真实的项目目录，含 charter.md）；
+/site/p/<slug>.html（研究与工程项目都有）、/site/p/<slug>/<Q|H 编号或 J 条目编号>.html（slug 同样要是档案根下真实的项目目录，含 charter.md）；
 其余 404；只允许 GET / HEAD。请求必须带白名单内的 Tailscale-User-Login 头，否则 403；
 --allow-local 只给本机调试：没有身份头的请求也放行。只用标准库。
 """
@@ -29,7 +29,7 @@ import sys
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 PATH_RE = re.compile(r"^/(?:(research\.html)|([a-z0-9]+(?:-[a-z0-9]+)*)/tree\.html)?$")
-SITE_RE = re.compile(r"^/site/(?:(index\.html)?|p/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.html|/([QH][1-9][0-9]{0,5})\.html))$")
+SITE_RE = re.compile(r"^/site/(?:(index\.html)?|p/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.html|/([QH][1-9][0-9]{0,5}|J[0-9]{6}-[1-9][0-9]{0,3})\.html))$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 UNIT = "pt-serve.service"
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "

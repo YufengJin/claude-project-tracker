@@ -44,16 +44,25 @@ def pages(text, size=PAGE, foot=160):
     return out
 
 
+def line_text(c):
+    """线的写法：定了原样；没定但有推荐值写「待用户定，推荐 …」。"""
+    if not c["line_set"] and c["rec"]:
+        return f"待用户定，推荐 {c['rec']}"
+    return c["line"] or "—"
+
+
 def cond_line(c, short=False):
     lt, best = c["latest"], c["best"]
     def v(j):
         return f"{j['verdict']}" + (f" {j['value']:g}" if j["value"] is not None else "") + \
             f"（{j['eid']}，{j['date'] or '日期不明'}）"
-    bits = [f"线 {c['line'] or '—'}"]
+    bits = [f"线 {line_text(c)}"]
     if lt:
         bits.append("最近 " + v(lt))
     if best and best is not lt:
         bits.append("最好 " + v(best))
+    if c["rec_gap"] is not None:
+        bits.append("对推荐线" + ("已到" if c["rec_gap"] == 0 else f"差 {c['rec_gap']:g}") + "（推荐线，不是定了的线）")
     if short:
         return f"{c['id']} [{c['status']}] {records.cut(c['text'], 30)} — " + "；".join(bits)
     return f"{c['id']} [{c['status']}] {c['text']}\n    " + "；".join(bits) + \
@@ -77,7 +86,7 @@ def conditions_text(rec):
         out.append(cond_line(c))
         for j in c["judgments"][-5:]:
             val = f"={j['value']:g}" if j["value"] is not None else ""
-            out.append(f"      {j['date'] or '?'} {j['verdict']}{val} {j['eid']}（{j['where']}）")
+            out.append(f"      {j['date'] or '?'} {j['verdict']}{val} {j['eid']}（{j['where']}）" + (f" {j['note']}" if j.get("note") else ""))
         if c["bad"]:
             out.append(f"    （格式：{c['bad']}）")
     if cs["orphans"]:
@@ -188,12 +197,26 @@ def get_text(rec, want):
     for a in rec["adrs"]:
         if a["id"] == want:
             return get_span(rec, "decisions.md", a["lineno"], a["end"], f"{a['id']} · ADR · {a['date'] or '日期不明'}")
-    js = rec["journal"]
-    for k, e in enumerate(js):
+    for e in rec["journal"]:
         if e["id"] == want:
-            end = js[k + 1]["lineno"] - 1 if k + 1 < len(js) else 10 ** 9
-            return get_span(rec, "journal.md", e["lineno"], end, f"{e['id']} · journal · {e['category'] or '旧格式'}")
+            return get_entry(rec, e)
     return None
+
+
+def get_entry(rec, e):
+    """journal 条目：一行头（编号、类别、日期、有没有卡、补记关系），下面是条目原文（卡就在原文第一段）。"""
+    bits = [e["id"], "journal", e["category"] or "旧格式", e["date"] or "日期不明"]
+    bits.append("有卡" if e["card"] else "无卡")
+    head = " · ".join(bits)
+    if e["alias"]:
+        head += f"（旧写法 {e['alias']}）"
+    rel = []
+    if e["covers"]:
+        rel.append("补记的原条目：" + "、".join(e["covers"]))
+    if e["covered_by"]:
+        rel.append("补记卡：" + "、".join(e["covered_by"]))
+    first, _, body = get_span(rec, e["file"], e["lineno"], e["end"], head).partition("\n")
+    return "\n".join([first] + (["；".join(rel)] if rel else []) + [body])
 
 
 def resolve(rec, want):
@@ -202,6 +225,8 @@ def resolve(rec, want):
         [c["id"] for c in rec["conditions"]["items"]] + [a["id"] for a in rec["adrs"]] + [e["id"] for e in rec["journal"]]
     if want in names:
         return want
+    if want in rec.get("jalias", {}):
+        return rec["jalias"][want]
     low = [x for x in names if x.lower() == want.lower()]
     return low[0] if low else None
 

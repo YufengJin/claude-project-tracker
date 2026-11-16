@@ -37,22 +37,59 @@ p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 g = """- G1 作业级 p95 不超过 2 mm | 线: ≤2 mm | 尺: verifier 指标 | 来源: 用户定
 - G2 高度误差 | 线: ≤10 mm | 尺: verifier | 来源: 推荐待定
 - G3 用户手感 OK | 线: 用户确认 | 尺: journal 裁决 | 来源: 用户定
-- G4 延迟 | 线: 待用户 | 尺: 以后定 | 来源: 推荐待定
+- G4 延迟 | 线: 待用户（推荐 ≤50 ms） | 尺: 以后定 | 来源: 推荐待定
 - G5 旧目标 | 线: ≥1 | 尺: x | 来源: 用户定 | 不再适用（ADR-0002）
 - G6 写不成格式的条件
 """
 s = re.sub(r"(## 完成标准\n)(.*?)(\n## )", lambda m: m.group(1) + g + m.group(3), s, count=1, flags=re.S)
 open(p, "w", encoding="utf-8").write(s)
 PY
-printf '\n## [2026-11-10] 结果 | G3 | 用户试过手感\nG3 过 E1（用户 11-10 原话「可以」）\n' >> "$R/journal.md"
+printf '\n## [2026-11-10] 结果 | G3 | 用户试过手感\nG3 过 E1（用户 11-10 原话「可以」）\nG4 不过 80 ms 台架实测\n' >> "$R/journal.md"
 printf '\n## ADR-0002: 改目标（2026-11-09）\nStatus: 采纳\n正文\n' >> "$R/decisions.md"
 bash "$PT" index rr "立了几个节点" >/dev/null
+# 工程项目 ee：月归档里的旧条目、journal 里的旧格式条目、有卡的结果条目、补记（原始记录指回旧条目）、没卡的新结果条目
+mkdir -p "$E/archive"
+printf '# journal 2026-09\n\n## [2026-09-03] 结果 | 台架 | 归档里的旧结果\n旧的正文。\n' > "$E/archive/journal-2026-09.md"
+cat >> "$E/journal.md" <<'EOF2'
+
+## 2026-10-02 · session 4
+- Did: 量了延迟。第二句不该出现。
+- Result: 中位 80 ms。
+
+## [2026-11-12] 结果 | 链路 | 七路相机 15 Hz 零丢
+目的：看七路相机能不能同时稳定出图。
+怎么做：60 秒录包，数各路帧率与丢帧。
+结果：七路全 15 Hz，丢帧 0；延迟中位 80 ms。
+结论：带宽够用，延迟还没达标。
+
+后面的过程原文。
+
+## [2026-10-02] 结果 | 补记 | 延迟中位 80 ms，没到 50 ms
+目的：量端到端延迟。
+怎么做：时间戳对拍。
+结果：中位 80 ms。
+结论：没到推荐的 50 ms。
+
+原始记录：J2026-10-02.1 Result
+
+## [2026-09-03] 结果 | 补记 | 归档那天的补记
+目的：补记归档月份的结果。
+怎么做：x。
+结果：y。
+结论：编号接着归档里的数。
+
+## [2026-11-13] 结果 | 链路 | 没写卡的新结果
+直接写了过程，没写卡。
+EOF2
+LONGCARD=$(python3 -c "print('很长' * 120)")
+printf '\n## [2026-11-14] 结果 | 长卡 | 卡太长\n目的：%s\n怎么做：a\n结果：b\n结论：c\n' "$LONGCARD" >> "$E/journal.md"
+git -C "$E" add journal.md archive && git -C "$E" -c user.name=t -c user.email=t@t commit -qm "journal 样本"
 
 echo "# 目录 index.tsv"
 I="$R/index.tsv"
 check "checkpoint 后生成目录，表头七列"      '[ -f "$I" ] && [ "$(head -n1 "$I")" = "$(printf "编号\t类型\t状态\t日期\t标题\t一行结果\t位置")" ]'
 check "目录不进提交（.git/info/exclude）"   'grep -qx index.tsv "$R/.git/info/exclude" && [ -z "$(git -C "$R" status --porcelain)" ] && ! git -C "$R" ls-files | grep -qx index.tsv'
-check "节点、台账（非 E 前缀也算）、条件、ADR、journal 都有行" 'for x in Q1 H1 E1 ID-TOPK M1 G1 ADR-0002; do grep -q "^$x	" "$I" || exit 1; done; grep -q "^J2026-11-10.1	journal	结果" "$I"'
+check "节点、台账（非 E 前缀也算）、条件、ADR、journal 都有行" 'for x in Q1 H1 E1 ID-TOPK M1 G1 ADR-0002; do grep -q "^$x	" "$I" || exit 1; done; grep -q "^J261110-1	journal	结果" "$I"'
 check "问题节点已答 / 未答，没读数被取代的假设标未跑" 'grep -q "^Q2	问题	已答	" "$I" && grep -q "^Q1	问题	未答	" "$I" && grep -q "^H3	假设	未跑	" "$I" && grep -q "^H1	假设	不成立	" "$I"'
 check "日期取 git（台账行与已关节点）"      'D=$(date +%F); grep -q "^E1	台账	不过 G2、过 G1	$D	" "$I" && grep -q "^H1	假设	不成立	$D	" "$I"'
 check "有卡的取卡，旧节点标原文摘取"          'grep -q "^H1	.*	高度 p95 15.3 mm，线是 2 mm \[E1\]	tree/H1.md$" "$I" && grep -q "^H2	.*	（原文摘取）" "$I"'
@@ -74,7 +111,22 @@ n=$(printf '%s\n' "$out" | wc -c)
 check "超过 3 KB 分页，给接着看的命令"       '[ "$n" -le 3200 ] && grep -q "（第 1/[0-9]* 页，每页 ≤3 KB；接着看：pt get rr H5 --page 2）" <<<"$out"'
 out=$(bash "$PT" get rr H5 --page 2)
 check "第 2 页接着给"                        'grep -q "很长的读数" <<<"$out" && grep -q "第 2/" <<<"$out"'
-check "ADR、journal、条件都能取"             'bash "$PT" get rr ADR-0002 | grep -q "^## ADR-0002: 改目标" && bash "$PT" get rr J2026-11-10.1 | grep -q "^G3 过 E1" && bash "$PT" get rr G1 | grep -q "^G1 \[不过\]"'
+check "ADR、journal、条件都能取"             'bash "$PT" get rr ADR-0002 | grep -q "^## ADR-0002: 改目标" && bash "$PT" get rr J261110-1 | grep -q "^G3 过 E1" && bash "$PT" get rr G1 | grep -q "^G1 \[不过\]"'
+check "journal 编号的旧写法与不带年份的写法也认" 'bash "$PT" get rr J2026-11-10.1 | grep -q "^J261110-1 · journal · 结果" && bash "$PT" get rr J1110-1 | grep -q "^G3 过 E1"'
+
+echo "# journal 条目：编号、卡、补记"
+IE=$(python3 "$(dirname "$PT")/query.py" index "$E" >/dev/null; cat "$E/index.tsv")
+check "编号 J+YYMMDD-序号；同一日期先数月归档再数 journal.md" 'grep -q "^J260903-1	journal	结果	2026-09-03	台架 | 归档里的旧结果	归档里的旧结果	archive/journal-2026-09.md:3$" <<<"$IE" && grep -q "^J260903-2	journal	结果	2026-09-03	补记 | 归档那天的补记	" <<<"$IE" && grep -q "^J261002-1	journal		2026-10-02	session 4	" <<<"$IE" && grep -q "^J261002-2	journal	结果	2026-10-02	补记 | 延迟中位 80 ms" <<<"$IE"'
+check "一行结果：有卡取结论，没卡取标题里的一句话" 'grep -q "^J261112-1	.*	带宽够用，延迟还没达标。	journal.md:" <<<"$IE" && grep -q "^J261113-1	.*	没写卡的新结果	journal.md:" <<<"$IE"'
+out=$(bash "$PT" get ee J261112-1)
+check "pt get 取单条：头一行编号与有卡，下面原文" 'grep -q "^J261112-1 · journal · 结果 · 2026-11-12 · 有卡" <<<"$out" && grep -q "^目的：看七路相机" <<<"$out" && grep -q "^后面的过程原文。" <<<"$out" && ! grep -q "补记" <<<"$out"'
+out=$(bash "$PT" get ee J261002-1)
+check "补记与原条目互相指" 'grep -q "^补记卡：J261002-2" <<<"$out" && bash "$PT" get ee J261002-2 | grep -q "^补记的原条目：J261002-1"'
+out=$(bash "$PT" brief ee)
+check "工程项目简报：最近有结论的取有卡结果条目的结论行" 'grep -q "^===== 最近有结论的 4 条" <<<"$out" && grep -q "^- J261112-1 11-12 .* — 带宽够用，延迟还没达标。" <<<"$out" && ! grep -q "J261113-1" <<<"$out"'
+out=$(bash "$PT" lint ee)
+check "lint：新写的结果条目没卡只提示；J 卡超长" 'grep -q "^ee: card-missing: 提示：近 14 天 1 条「结果」条目没有卡（J261113-1）" <<<"$out" && grep -q "^ee: card-format: J261114-1（journal.md:[0-9]*）的卡：[0-9]* 字节，超过 600" <<<"$out"'
+
 check "不存在的编号：提示 find，退出非 0"     'o=$(bash "$PT" get rr H99); [ $? -ne 0 ] && grep -q "pt find rr H99" <<<"$o"'
 
 echo "# pt find"
@@ -87,6 +139,8 @@ echo "# 条件"
 out=$(bash "$PT" conditions rr)
 check "状态只从点名的判定算：最近 不过、最好 1.8" 'grep -q "^G1 \[不过\] 作业级" <<<"$out" && grep -q "线 ≤2 mm；最近 不过 2.5（E2，.*）；最好 过 1.8（E1，" <<<"$out"'
 check "数值判定、journal 判定、线未定、不再适用、写不成格式" 'grep -q "^G2 \[不过\]" <<<"$out" && grep -q "^G3 \[过\] 用户手感 OK" <<<"$out" && grep -q "最近 过（E1，2026-11-10）" <<<"$out" && grep -q "^G4 \[线未定\]" <<<"$out" && grep -q "^G5 \[不再适用\]" <<<"$out" && grep -q "^G6 \[线未定\]" <<<"$out" && grep -q "（格式：缺「线:」" <<<"$out"'
+check "推荐线：原样显示，对推荐线差多少标明是推荐线，状态仍线未定" 'grep -q "线 待用户定，推荐 ≤50 ms；最近 不过 80（J261110-1，2026-11-10）；对推荐线差 30（推荐线，不是定了的线）" <<<"$out"'
+check "journal 判定带证据文字"                 'grep -q "2026-11-10 过 E1（journal.md:[0-9]*） E1（用户 11-10 原话「可以」）" <<<"$out"'
 check "点名了没登记的条件"                   'grep -q "点名了没登记的条件：G9" <<<"$out"'
 out=$(bash "$PT" conditions ee)
 check "没登记的项目：原样列旧完成标准，标未登记" 'grep -q "^未登记" <<<"$out" && grep -q "^  - \[ \] 旧写法的完成标准：能跑通" <<<"$out"'
@@ -107,7 +161,7 @@ check "pt tree --all 有卡的取卡的结论行"      'bash "$PT" tree rr --all
 out=$(bash "$PT" brief rr)
 check "简报 ≤8 KB，有条件块、最近卡、去哪找"  '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ] && grep -q "^===== 条件（" <<<"$out" && grep -q "^- G1 \[不过\]" <<<"$out" && grep -q "^- H1 \[不成立\] .* — 不成立，钢件平面不够" <<<"$out" && grep -q "pt get rr <编号>" <<<"$out"'
 out=$(bash "$PT" brief ee)
-check "工程项目简报：条件未登记、journal 标题" 'grep -q "^===== 条件：未登记" <<<"$out" && grep -q "^===== journal 最近" <<<"$out" && ! grep -q "= 前沿" <<<"$out"'
+check "工程项目简报：条件未登记、没有前沿块" 'grep -q "^===== 条件：未登记" <<<"$out" && grep -q "^===== 最近有结论的" <<<"$out" && ! grep -q "= 前沿" <<<"$out"'
 
 echo "# 给人看的站点（pt site）"
 out=$(bash "$PT" site 2>&1)
@@ -117,6 +171,10 @@ P="$SITE/p/rr.html"; H="$SITE/p/rr"
 check "总览：判词色条、条件过 x/y、工程项目条件未登记" 'grep -q "class=\"bar\"" "$SITE/index.html" && grep -q "条件过 0/" "$SITE/index.html" && grep -q "条件未登记" "$SITE/index.html"'
 check "项目页：条件表（线未定不画差距、不再适用）" 'grep -q "<th>差多少</th>" "$P" && grep -q "id=\"cond-G4\"" "$P" && grep -q "线未定" "$P" && grep -q "不再适用" "$P" && grep -q "研究树图" "$P"'
 check "条件表：最好值离线差多少（按线的方向）" 'grep -q "<td data-l=\"差多少\">差 5.3</td>" "$P" && grep -q "<td data-l=\"差多少\">已到线</td>" "$P"'
+check "条件表：推荐线、对推荐线差、值列只写数、证据文字点进条目页" 'grep -q "待用户定，推荐 ≤50 ms" "$P" && grep -q "<td data-l=\"差多少\">对推荐线差 30</td>" "$P" && grep -q "<td data-l=\"最近\">2.5</td>" "$P" && ! grep -q "data-l=\"最近\">不过" "$P" && grep -q "class=\"evn\" href=\"rr/J261110-1.html\"[^>]*>（用户 11-10 原话「可以」）</a>" "$P" && [ -f "$H/J261110-1.html" ]'
+check "研究项目页：没卡的旧节点一行、问题分组顶上是问题卡" '! grep -q "class=\"ct\" href=\"rr/H2.html\"" "$P" && grep -q "<li data-s=\"已判\">.*假设二：旧节点没有卡" "$P" && grep -q "id=\"g-Q2\".*<dt>目的</dt><dd>看筐相对机器人" "$P"'
+EP="$SITE/p/ee.html"
+check "工程项目页：有卡的四行卡、没卡的标题加第一句、条目页" 'grep -q "<dt>结论</dt><dd>带宽够用，延迟还没达标。" "$EP" && grep -q "session 4</a>：Did: 量了延迟。 <span class=\"muted\">（已补卡 1 张）" "$EP" && ! grep -q "第二句不该出现" "$EP" && [ -f "$SITE/p/ee/J261112-1.html" ] && grep -q "<h2>条目原文</h2>" "$SITE/p/ee/J261112-1.html" && grep -q "后面的过程原文" "$SITE/p/ee/J261112-1.html" && grep -q "补记自：<a class=\"ref\" href=\"J261002-1.html\"" "$SITE/p/ee/J261002-2.html"'
 check "项目页：最近有结论的实验、按问题分组、可筛" 'grep -q "<h2>最近有结论的实验</h2>" "$P" && grep -q "id=\"g-Q1\"" "$P" && grep -q "data-f=\"已判\"" "$P" && grep -q "data-f=\"搁置\"" "$P"'
 check "项目页：编号换成短标题与「证据」，不裸露" 'grep -q ">证据</a>" "$P" && ! sed "s/<[^>]*>//g" "$P" | grep -qE "(^|[^A-Za-z0-9])(E1|E2|H1|H2|Q2)([^A-Za-z0-9]|$)"'
 check "节点页：卡在上、证据表、判据、原文、释义"  'grep -q "<dt>怎么做</dt><dd>平面拟合加先验" "$H/H1.html" && grep -q "id=\"row-E1\"" "$H/H1.html" && grep -q "<h2>事先定的判据</h2>" "$H/H1.html" && grep -q "节点原文" "$H/H1.html" && grep -q "<h2>本页编号与术语</h2>" "$H/H1.html"'

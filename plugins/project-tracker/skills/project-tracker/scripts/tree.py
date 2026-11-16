@@ -204,11 +204,30 @@ CARD_LABELS = ("目的", "怎么做", "结果", "结论")
 CARD_LINE = re.compile(r"^\s*(?:[-*+]\s+)?\**(目的|怎么做|结果|结论)\**\s*[：:]\s*(.*)$")
 
 
+ORIG_LINE = re.compile(r"^\s*(?:[-*+]\s+)?\**原始记录\**\s*[：:]")
+
+
+def card_para(text):
+    """一段文字的卡段：第一段以「目的：」开头时，到段尾或「原始记录：」行之前为止的那几行；不是卡给 []。"""
+    lines = []
+    for ln in first_para(text).split("\n"):
+        if ORIG_LINE.match(ln):
+            break
+        if ln.strip():
+            lines.append(ln)
+    m = CARD_LINE.match(lines[0]) if lines else None
+    return lines if m and m.group(1) == "目的" else []
+
+
 def card(node):
     """短卡：「## 结论」第一段以「目的：」开头时，这一段就是卡。返回 {标签: 文本}（按出现顺序，续行并进上一项）；没有卡给 None。"""
-    lines = [ln for ln in first_para(section(node, "结论")).split("\n") if ln.strip()]
-    m = CARD_LINE.match(lines[0]) if lines else None
-    if not m or m.group(1) != "目的":
+    return card_text(section(node, "结论"))
+
+
+def card_text(text):
+    """card 的文字版：text 的第一段是卡就解析它（journal「结果」条目的正文也用这个）。"""
+    lines = card_para(text)
+    if not lines:
         return None
     out, cur = {}, None
     for ln in lines:

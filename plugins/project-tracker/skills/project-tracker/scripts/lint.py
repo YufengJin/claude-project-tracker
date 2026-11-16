@@ -23,6 +23,8 @@ CHECKS = ("state-stale", "pending-stale", "template", "journal-size", "state-siz
           "card-missing", "card-format", "card-ref", "card-number", "cond-format")
 STATE_LAG_DAYS = 2          # state 的 Updated 比 journal 最新条目早这么多天及以上
 PENDING_DAYS = 7            # 待拍板 / 等用户 里的日期超过这么多天
+RESULT_CARD_DAYS = 14       # 这么多天内新写的「结果」条目没有卡：提示
+COND_FIRST = re.compile(r"^\s*(?:[-*+]\s+)?\**(?:不过|过)?\s*G\d")  # 第一段里有条件判定行的「结果」条目（判定条目）不要卡
 JOURNAL_MAX = 100 * 1024
 ROOT_KNOW_MAX = 6 * 1024    # 根节点「当前认识」+「教训」
 NODE_MAX = 5 * 1024
@@ -202,6 +204,23 @@ def card_checks(rec, add):
         lost = sorted(nums(n["card"].get("结果", "") + " " + n["card"].get("结论", "")) - nums(src))
         if lost:
             add("card-number", f"提示：{i} 的卡里 {short('、'.join(lost), 30)} 在节点原文与它的台账行里没找到（派生数可忽略）")
+    # journal「结果」条目的卡：规则同节点；近 RESULT_CARD_DAYS 天新写的没有卡只作提示（只写条件判定的不算）
+    lo = (records.progress.today() - dt.timedelta(days=RESULT_CARD_DAYS)).isoformat()
+    bare = []
+    for e in rec["journal"]:
+        if e["category"] != "结果":
+            continue
+        if e["card"]:
+            lack = [k for k in tree.CARD_LABELS if not e["card"].get(k)]
+            why = ([f"缺 {'、'.join(lack)}"] if lack else []) + \
+                ([f"{e['card_bytes']} 字节，超过 {records.CARD_MAX}"] if e["card_bytes"] > records.CARD_MAX else [])
+            if why:
+                add("card-format", f"{e['id']}（{e['where']}）的卡：{'；'.join(why)}")
+        elif e["date"] >= lo and not any(COND_FIRST.match(ln) for ln in tree.first_para(e["text"].split("\n", 1)[-1]).split("\n")):
+            bare.append(e["id"])
+    if bare:
+        add("card-missing", f"提示：近 {RESULT_CARD_DAYS} 天 {len(bare)} 条「结果」条目没有卡（{'、'.join(bare[-5:])}）："
+                            "正文第一段写 目的：/怎么做：/结果：/结论：四行")
     cs = rec["conditions"]
     for c in cs["items"]:
         if c["bad"]:
