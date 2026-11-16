@@ -255,7 +255,7 @@ def where_block(rec, d, ctx):
     if cold:
         rows.append(("冷存储（平时不读）", "、".join(x + "/" for x in cold)))
     rows.append(("journal 新条目", "## [YYYY-MM-DD] 类别 | 节点或线程 | 一句话（" + "、".join(journal.CATEGORIES) + "）；"
-                 "「结果」条目正文第一段写卡：目的：/怎么做：/结果：/结论：四行，≤600 B"))
+                 "「结果」条目正文第一段写卡：目的：/怎么做：/结果：/结论：四行，≤800 B"))
     return block(f"去哪找（文件在 {d}/）", [f"- {a}：{b}" for a, b in rows])
 
 

@@ -11,7 +11,7 @@
   https_port=8443      tailnet 内 HTTPS 端口（tailscale serve --https=）
   allow=a@x.com,b@y.com   允许的 Tailscale 登录名（tailscale serve 附加的 Tailscale-User-Login 头）
 
-只服务 /、/research.html、/<slug>/tree.html（slug 是档案根下真实目录、含 tree/、不是符号链接、文件不逃出档案根），
+只服务 /（档案根下有合格的 site/ 时 302 到 /site/，没有时同 /research.html）、/research.html、/<slug>/tree.html（slug 是档案根下真实目录、含 tree/、不是符号链接、文件不逃出档案根），
 以及给人看的站点 <档案根>/site/（pt site / pt monitor 生成，目录里要有 .pt-site 标记）：/site/、/site/index.html、
 /site/p/<slug>.html（研究与工程项目都有）、/site/p/<slug>/<Q|H 编号或 J 条目编号>.html（slug 同样要是档案根下真实的项目目录，含 charter.md）；
 其余 404；只允许 GET / HEAD。请求必须带白名单内的 Tailscale-User-Login 头，否则 403；
@@ -137,6 +137,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _serve(self, body):
         if not self._identity_ok():
             return self.send_error(403)
+        path = self.path.split("?", 1)[0].split("#", 1)[0]
+        if path == "/" and self._resolve_site(os.path.realpath(self.root), SITE_RE.match("/site/")):
+            self.send_response(302)  # 首页换成新站点；旧的 research.html 仍在 /research.html
+            self.send_header("Location", "/site/")
+            self.send_header("Content-Length", "0")
+            return self.end_headers()
         f = self._resolve()
         if f is None:
             return self.send_error(404)

@@ -91,6 +91,9 @@ Codex has no SessionStart hook; on resume the skill runs `pt.sh brief <slug>` it
 PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
 bash $PT list [--tsv]                          # computed overview plus each project's host, name, Workdir (hub: syncs first)
 bash $PT results <slug> [--all]                # what a project found: closed nodes by date, open ledger rows, plan / pushed
+bash $PT get <slug> <id> [--page N]            # one record by id: node card, ledger row, ADR, condition G1, journal entry J260927-3
+bash $PT find <slug> <word> [word ...]         # search the generated catalog <slug>/index.tsv (one line per record)
+bash $PT conditions <slug>                     # done-criteria G lines with status computed from the verdicts that name them
 bash $PT where                                 # in-progress local projects that claim $PWD
 bash $PT auto                                  # what the SessionStart hook runs
 bash $PT brief <slug>                          # recovery-order brief, sets ACTIVE
@@ -99,12 +102,30 @@ bash $PT index <slug> "<one-liner>" [status]   # set the one-liner/status, commi
 bash $PT research <slug>                       # research project: add verifier.md, experiments.md, tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # research tree: print context, rewrite tree.html
 bash $PT monitor [--out PATH]                  # global research monitor: all research projects in <root>/research.html
-bash $PT serve [install|status|uninstall]      # read-only tailnet view of research.html / tree.html
+bash $PT site [--out DIR]                      # human-readable read-only site: all projects → project → node, in <root>/site/
+bash $PT serve [install|status|uninstall]      # read-only tailnet view of site/, research.html and tree.html
 bash $PT migrate                               # upgrade 0.3 archives (backup first, idempotent)
 bash $PT sync [-q] [alias ...]                 # hub: fast-forward sync with the nodes
 bash $PT dispatch <slug> "<task>" [--wait]     # hub: run the node's own Claude on a task
 bash $PT runs [slug | --wait <run>]            # hub: dispatch status
 ```
+
+### Cards, conditions and lookups (0.9.0)
+
+- **Short card**: the first paragraph of a node's `## 结论`, and of a journal 「结果」 entry, is four lines
+  `目的：` `怎么做：` `结果：` `结论：` (question nodes: `目的：` `结果：`), at most 800 bytes. Briefs, `pt results`, `pt get` and
+  the site show the card; old nodes without one get the first sentence of the conclusion, marked as an extract.
+  Journal entries are numbered `J` + `YYMMDD` + `-n` (`J260927-3`).
+- **Condition lines**: charter 「完成标准」 holds one line per condition, `- G1 statement | 线: ≤2 mm | 尺: how it is measured | 来源: 用户定`.
+  Only the user sets a line; until then write `线: 待用户（推荐 ≤2 mm）`. Status (过 / 不过 / 未测 / 线未定 / 不再适用) comes only from
+  verdicts that name the condition (ledger conclusion `过 G2` / `不过 G2=15.3`, journal 「结果」 line `G3 过 <evidence>`);
+  a 过 / 不过 written against a line that is not set yet is shown as a plain reading and flagged by `pt lint`.
+- **Catalog**: `<slug>/index.tsv` lists every node, ledger row, condition, ADR and journal entry (generated, never committed);
+  `pt get` and `pt find` read records by id instead of whole files.
+- **Fixed-size brief**: `pt brief` is at most 8 KB with fixed-size blocks (lint, state, focus understanding, conditions,
+  last 5 cards, frontier, where to look), so it does not grow with the archive. Start a session by reading only the brief.
+- **`pt site`**: static pages on three levels (all projects → project → node / journal entry), rendered from the records
+  without calling a model; `pt monitor` also writes it, and `pt serve` makes it the home page.
 
 ### Research tree (optional)
 
@@ -131,8 +152,10 @@ Archives without `tree/` behave exactly as before.
 
 `pt serve` publishes `research.html` and every `<slug>/tree.html` read-only inside your tailnet. It listens only on
 `127.0.0.1` and `pt serve install` puts `tailscale serve` in front of it (tailnet-only HTTPS, never Funnel). Nothing
-else in the archive is served: only `/`, `/research.html` and `/<slug>/tree.html` for real (non-symlink) project
-directories with a `tree/`; everything else is 404, and only GET/HEAD are allowed.
+else in the archive is served: only `/`, `/research.html`, `/<slug>/tree.html` for real (non-symlink) project
+directories with a `tree/`, and the generated site under `/site/`; everything else is 404, and only GET/HEAD are allowed.
+`/` redirects to `/site/` once `<root>/site/` exists (with its `.pt-site` marker), otherwise it serves `research.html`;
+`/research.html` always stays reachable and the site links back to it as 「研究总览（旧版）」.
 
 Identity: `tailscale serve` adds a `Tailscale-User-Login` header to each proxied request. The server answers only when
 that header is on the allow list; a request without it is 403, so a shared tailnet is fine. Configure it in

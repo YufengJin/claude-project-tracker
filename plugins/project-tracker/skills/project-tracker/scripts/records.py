@@ -19,7 +19,7 @@ load(d) 返回（字段缺就是空串、空表或 None，不猜）：
                  "target": 线里的数（线定了且有方向时）或 None, "gap": 最好值离线还差多少（≥0，0 = 已到线；算不出 None）,
                  "bad": 写不成格式时的原因（空串 = 合格）}],
       "legacy": [没登记时「完成标准」原样的行],
-      判定 = {"verdict": 过|不过, "value": 数或 None, "eid": 证据编号, "date": YYYY-MM-DD 或 "", "where": "experiments.md:12" 等}},
+      判定 = {"verdict": 过|不过|读数（线没定的条件：作者写的过 / 不过只当读数，原词在 "claimed"）, "value": 数或 None, "eid": 证据编号, "date": YYYY-MM-DD 或 "", "where": "experiments.md:12" 等}},
   "nodes": {ID: {"id", "kind": "Q"|"H", "title", "status": open|active|parked|closed, "verdict", "by": [ID],
                  "shown": 显示状态（问题：已答|未答；假设：在做|待做|搁置|成立|不成立|没定论|被取代|放弃|未跑）,
                  "parent", "children": [ID], "card": {"目的", "怎么做", "结果", "结论"}（问题只有目的、结果；没有的键不出现）,
@@ -54,7 +54,7 @@ import lint  # noqa: E402
 import progress  # noqa: E402
 import tree  # noqa: E402
 
-CARD_MAX = 600
+CARD_MAX = 800
 H_SHOWN = {"supported": "成立", "refuted": "不成立", "inconclusive": "没定论", "superseded": "被取代", "abandoned": "放弃"}
 OPEN_SHOWN = {"active": "在做", "open": "待做", "parked": "搁置"}
 COND_HEAD = "完成标准"
@@ -418,6 +418,10 @@ def settle(items, judgments):
     for c in items:
         js = sorted(by.get(c["id"], []), key=lambda j: j["date"] or "0000")  # 稳定排序：同日按出现先后
         c["judgments"] = js
+        if not c["line_set"] and not c["retired"]:  # 线没定：过 / 不过不算数，只留读数（lint 提示作者）
+            for j in js:
+                j.setdefault("claimed", j["verdict"])
+                j["verdict"] = "读数"
         c["latest"] = js[-1] if js else None
         vals = [j for j in js if j["value"] is not None]
         if vals and c["direction"]:
@@ -664,6 +668,10 @@ def load(d, today=None):
     link_orig(entries, rec["jalias"])
     js = [j for k in order for j in rows[k]["judgments"]] + journal_judgments(entries)
     orphan = settle(items, js)
+    for k in order:  # 线没定的条件，判定在 settle 里改成了「读数」，台账行状态跟着重写
+        r = rows[k]
+        if r["judgments"]:
+            r["status"] = "、".join(f"{j['verdict']} {j['cid']}" for j in r["judgments"])
     rec["conditions"] = {"registered": bool(items), "items": items, "legacy": [] if items else legacy,
                          "orphans": orphan}
     rec["adrs"] = adr_list(d)

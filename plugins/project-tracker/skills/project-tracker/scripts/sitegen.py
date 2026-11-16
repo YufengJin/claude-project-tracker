@@ -12,6 +12,7 @@
   p/<slug>/<编号>.html   节点页：判定徽章与卡；证据（挂着的台账行）、事先定的判据、节点原文；本页编号与术语释义
   p/<slug>/<J编号>.html  journal 条目页（有卡的、条件判定所在的；工程项目是全部带日期的条目）：卡在上，条目原文在下
 项目页上编号尽量换成标题（纯编号的括注换成一个「证据」链接），长的原文、判据、台账明细只在节点页。
+站点在默认位置时首页页头给「研究总览（旧版）」（→ ../research.html），项目页给「研究树图」；--out 指到别处时都不给。
 整站先写进临时目录再整体换上；站点目录里有标记文件 .pt-site，--out 指向已有的别的目录时拒绝覆盖。
 取不到的写「未记录」；内网地址、口令类字符串在页面上隐去。
 """
@@ -888,7 +889,7 @@ def overview(recs, fails, today, research_href, note):
     pend.sort(key=lambda x: -x[1])
     s = ["<h1>全部项目</h1>",
          f'<div class="meta"><span>{allp} 个项目</span>' +
-         (f'<a href="{research_href}">研究监控（旧页）</a>' if research_href else "") + "</div>"]
+         (f'<a href="{research_href}">研究总览（旧版）</a>' if research_href else "") + "</div>"]
     total = sum(k for _r, k in pend)
     s.append(f'<div class="lead"><b>等你拍板 {total} 件</b>' +
              (f'（{len(pend)} 个项目）：' + "、".join(
@@ -1003,11 +1004,14 @@ def build(root, out=None, slugs=None, today=None):
         os.makedirs(os.path.join(tmp, "p"))
         write(os.path.join(tmp, MARK), "pt sitegen\n")
         sizes = {}
-        rh = rel(os.path.join(root, "research.html"), out) if os.path.isfile(os.path.join(root, "research.html")) else ""
+        # 站点在档案根下（默认位置）才链回 research.html 与各 tree.html（pt serve 下是 /research.html、/<slug>/tree.html）；
+        # --out 指到别处时这些相对路径既不在 pt serve 里、换台机器也打不开，不给
+        home = out == os.path.join(root, "site")
+        rh = "../research.html" if home and os.path.isfile(os.path.join(root, "research.html")) else ""
         sizes["index.html"] = write(os.path.join(tmp, "index.html"), overview(recs, fails, today, rh, note))
         for slug, rec in recs.items():
             th = os.path.join(root, slug, "tree.html")
-            href = rel(th, os.path.join(out, "p")) if rec["kind"] == "research" and os.path.isfile(th) else ""
+            href = rel(th, os.path.join(out, "p")) if home and rec["kind"] == "research" and os.path.isfile(th) else ""
             try:
                 sizes[f"p/{slug}.html"] = write(os.path.join(tmp, "p", f"{slug}.html"), project_page(rec, today, href, note))
                 for i in rec["nodes"]:

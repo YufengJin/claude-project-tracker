@@ -550,7 +550,7 @@ check "只监听 127.0.0.1"                  'grep -q "^listening on 127.0.0.1:"
 check "无身份头 403"                       '[ "$(code "$U/")" = 403 ]'
 check "非白名单身份 403"                   '[ "$(code -H "Tailscale-User-Login: x@evil.com" "$U/")" = 403 ]'
 check "Host 不是本机/ts.net 403（防 DNS rebinding）" '[ "$(code "${ME[@]}" -H "Host: evil.com" "$U/")" = 403 ]'
-check "白名单身份 / → research.html"       'curl -s "${ME[@]}" "$U/" | grep -q RESEARCH && [ "$(code "${ME[@]}" "$U/research.html")" = 200 ]'
+check "有站点：/ → 302 /site/；research.html 照常 200" '[ "$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${ME[@]}" "$U/")" = "302 $U/site/" ] && curl -s "${ME[@]}" "$U/research.html" | grep -q RESEARCH'
 check "白名单身份（大小写无关）tree.html 200" 'curl -s -H "Tailscale-User-Login: OTHER@example.com" "$U/ra/tree.html" | grep -q TREE-RA'
 check "带查询串与锚点照常"                 '[ "$(code "${ME[@]}" "$U/ra/tree.html?x=1")" = 200 ]'
 check "站点：总览、研究与工程项目页、节点页 200" 'curl -s "${ME[@]}" "$U/site/" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/index.html" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/p/ra.html" | grep -q SITE-RA && curl -s "${ME[@]}" "$U/site/p/nt.html" | grep -q SITE-NT && curl -s "${ME[@]}" "$U/site/p/ra/H1.html?theme=dark" | grep -q SITE-H1'
@@ -560,18 +560,18 @@ for p in /../ /ra/../research.html /%2e%2e/research.html /ra/%2e%2e/ra/tree.html
   check "拒绝 $p"                          '[ "$(code "${ME[@]}" "$U$p")" = 404 ]'
 done
 rm "$SV/site/.pt-site"
-check "站点目录没有 .pt-site 标记：404"      '[ "$(code "${ME[@]}" "$U/site/")" = 404 ] && [ "$(code "${ME[@]}" "$U/site/p/ra.html")" = 404 ]'
+check "站点目录没有 .pt-site 标记：404，/ 回到 research.html" '[ "$(code "${ME[@]}" "$U/site/")" = 404 ] && [ "$(code "${ME[@]}" "$U/site/p/ra.html")" = 404 ] && curl -s "${ME[@]}" "$U/" | grep -q RESEARCH'
 touch "$SV/site/.pt-site"
 check "POST 405"                           '[ "$(code "${ME[@]}" -X POST "$U/")" = 405 ]'
-check "HEAD 200 无正文"                    '[ "$(curl -s -I "${ME[@]}" "$U/" -o /dev/null -w "%{http_code} %{size_download}")" = "200 0" ]'
-hd=$(curl -s -D - -o /dev/null "${ME[@]}" "$U/"); hd403=$(curl -s -D - -o /dev/null "$U/")
+check "HEAD 200 无正文"                    '[ "$(curl -s -I "${ME[@]}" "$U/research.html" -o /dev/null -w "%{http_code} %{size_download}")" = "200 0" ]'
+hd=$(curl -s -D - -o /dev/null "${ME[@]}" "$U/research.html"); hd403=$(curl -s -D - -o /dev/null "$U/")
 check "响应头齐全（200 与 403 都有）"       'for h in "Cache-Control: no-cache" "X-Content-Type-Options: nosniff" "Content-Security-Policy: default-src '"'"'none'"'"'" "Referrer-Policy: no-referrer"; do grep -qi "^$h" <<<"$hd" && grep -qi "^$h" <<<"$hd403" || exit 1; done'
 check "日志记下身份"                       'grep -q "me@example.com" "$T/sv.log"'
 kill $SVPID 2>/dev/null; wait $SVPID 2>/dev/null
 python3 "$SERVE" --root "$SV" run --port 0 --allow-local >"$T/sv2.out" 2>/dev/null & SVPID=$!
 for _ in $(seq 50); do grep -q listening "$T/sv2.out" 2>/dev/null && break; sleep 0.1; done
 U2="http://127.0.0.1:$(sed -n 's/.*127.0.0.1:\([0-9]*\).*/\1/p' "$T/sv2.out")"
-check "--allow-local：无头放行，坏身份仍 403" '[ "$(code "$U2/")" = 200 ] && [ "$(code -H "Tailscale-User-Login: x@evil.com" "$U2/")" = 403 ]'
+check "--allow-local：无头放行，坏身份仍 403" '[ "$(code "$U2/research.html")" = 200 ] && [ "$(code -H "Tailscale-User-Login: x@evil.com" "$U2/")" = 403 ]'
 kill $SVPID 2>/dev/null; wait $SVPID 2>/dev/null
 printf 'port=18443\n' > "$SV/.serve.conf"
 check "allow 为空拒绝启动"                 '! python3 "$SERVE" --root "$SV" run --port 0 2>/dev/null'

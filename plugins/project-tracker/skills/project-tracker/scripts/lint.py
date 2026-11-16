@@ -225,6 +225,10 @@ def card_checks(rec, add):
     for c in cs["items"]:
         if c["bad"]:
             add("cond-format", f"条件 {c['id']}（charter.md:{c['lineno']}）：{c['bad']}；写法 - G1 陈述 | 线: … | 尺: … | 来源: …")
+        said = [j for j in c["judgments"] if j.get("claimed")]
+        if said:
+            add("cond-format", f"提示：{c['id']} 的线还没定，判定只能记读数（{short('、'.join(j['where'] for j in said), 60)} "
+                               f"写了过 / 不过，按读数显示；线由用户定）")
     for cid in sorted({j["cid"] for j in cs["orphans"]}):
         w = next(j["where"] for j in cs["orphans"] if j["cid"] == cid)
         add("cond-format", f"判定点名了 {cid}（{w}），但 charter「完成标准」里没有这条")

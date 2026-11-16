@@ -81,7 +81,7 @@ cat >> "$E/journal.md" <<'EOF2'
 ## [2026-11-13] 结果 | 链路 | 没写卡的新结果
 直接写了过程，没写卡。
 EOF2
-LONGCARD=$(python3 -c "print('很长' * 120)")
+LONGCARD=$(python3 -c "print('很长' * 150)")
 printf '\n## [2026-11-14] 结果 | 长卡 | 卡太长\n目的：%s\n怎么做：a\n结果：b\n结论：c\n' "$LONGCARD" >> "$E/journal.md"
 git -C "$E" add journal.md archive && git -C "$E" -c user.name=t -c user.email=t@t commit -qm "journal 样本"
 
@@ -125,7 +125,7 @@ check "补记与原条目互相指" 'grep -q "^补记卡：J261002-2" <<<"$out" 
 out=$(bash "$PT" brief ee)
 check "工程项目简报：最近有结论的取有卡结果条目的结论行" 'grep -q "^===== 最近有结论的 4 条" <<<"$out" && grep -q "^- J261112-1 11-12 .* — 带宽够用，延迟还没达标。" <<<"$out" && ! grep -q "J261113-1" <<<"$out"'
 out=$(bash "$PT" lint ee)
-check "lint：新写的结果条目没卡只提示；J 卡超长" 'grep -q "^ee: card-missing: 提示：近 14 天 1 条「结果」条目没有卡（J261113-1）" <<<"$out" && grep -q "^ee: card-format: J261114-1（journal.md:[0-9]*）的卡：[0-9]* 字节，超过 600" <<<"$out"'
+check "lint：新写的结果条目没卡只提示；J 卡超长" 'grep -q "^ee: card-missing: 提示：近 14 天 1 条「结果」条目没有卡（J261113-1）" <<<"$out" && grep -q "^ee: card-format: J261114-1（journal.md:[0-9]*）的卡：[0-9]* 字节，超过 800" <<<"$out"'
 
 check "不存在的编号：提示 find，退出非 0"     'o=$(bash "$PT" get rr H99); [ $? -ne 0 ] && grep -q "pt find rr H99" <<<"$o"'
 
@@ -139,7 +139,7 @@ echo "# 条件"
 out=$(bash "$PT" conditions rr)
 check "状态只从点名的判定算：最近 不过、最好 1.8" 'grep -q "^G1 \[不过\] 作业级" <<<"$out" && grep -q "线 ≤2 mm；最近 不过 2.5（E2，.*）；最好 过 1.8（E1，" <<<"$out"'
 check "数值判定、journal 判定、线未定、不再适用、写不成格式" 'grep -q "^G2 \[不过\]" <<<"$out" && grep -q "^G3 \[过\] 用户手感 OK" <<<"$out" && grep -q "最近 过（E1，2026-11-10）" <<<"$out" && grep -q "^G4 \[线未定\]" <<<"$out" && grep -q "^G5 \[不再适用\]" <<<"$out" && grep -q "^G6 \[线未定\]" <<<"$out" && grep -q "（格式：缺「线:」" <<<"$out"'
-check "推荐线：原样显示，对推荐线差多少标明是推荐线，状态仍线未定" 'grep -q "线 待用户定，推荐 ≤50 ms；最近 不过 80（J261110-1，2026-11-10）；对推荐线差 30（推荐线，不是定了的线）" <<<"$out"'
+check "推荐线：原样显示，对推荐线差多少标明是推荐线，状态仍线未定；线没定写的不过只当读数" 'grep -q "线 待用户定，推荐 ≤50 ms；最近 读数 80（J261110-1，2026-11-10）；对推荐线差 30（推荐线，不是定了的线）" <<<"$out"'
 check "journal 判定带证据文字"                 'grep -q "2026-11-10 过 E1（journal.md:[0-9]*） E1（用户 11-10 原话「可以」）" <<<"$out"'
 check "点名了没登记的条件"                   'grep -q "点名了没登记的条件：G9" <<<"$out"'
 out=$(bash "$PT" conditions ee)
@@ -154,6 +154,7 @@ check "卡字段不齐"                           'grep -q "^rr: card-format: H4
 check "卡里的编号目录里没有"                 'grep -q "^rr: card-ref: H4 的卡引用了目录里没有的编号：E99" <<<"$out" && ! grep -q "card-ref: H1" <<<"$out"'
 check "数字溯源只作提示"                     'grep -q "^rr: card-number: 提示：H4 的卡里 99.9" <<<"$out" && ! grep -q "card-number: 提示：H1" <<<"$out"'
 check "条件行写不成格式、点名没登记的条件"   'grep -q "^rr: cond-format: 条件 G6" <<<"$out" && grep -q "^rr: cond-format: 判定点名了 G9" <<<"$out"'
+check "线没定的条件写了过 / 不过：提示只能记读数" 'grep -q "^rr: cond-format: 提示：G4 的线还没定，判定只能记读数（journal.md:[0-9]* 写了过 / 不过" <<<"$out" && ! grep -q "G1 的线还没定" <<<"$out"'
 
 echo "# 旧接口：results / tree 取卡的「结论」行，简报定长"
 check "pt results 有卡的取卡的结论行"         'bash "$PT" results rr | grep -q " H1 refuted 假设一：钢件平面拟合 — 不成立，钢件平面不够 \[E1\]"'
@@ -190,6 +191,10 @@ mkdir -p "$T/notsite"; echo x > "$T/notsite/keep.txt"
 check "--out 指向别的非空目录：拒绝覆盖"      '! bash "$PT" site --out "$T/notsite" 2>/dev/null && [ -f "$T/notsite/keep.txt" ]'
 rm -rf "$SITE"; python3 "$(dirname "$PT")/monitor.py" "$T/root" >/dev/null 2>&1
 check "pt monitor 顺带生成站点；research.html 有入口" '[ -f "$SITE/p/ee.html" ] && grep -q "site/index.html" "$T/root/research.html"'
+check "默认位置：首页链回旧研究总览"          'grep -q "<a href=\"../research.html\">研究总览（旧版）</a>" "$SITE/index.html"'
+check "线没定的判定在条目页只当读数"          'grep -q "判定的条件：.*读数 <a[^>]*>[^<]*</a>=80" "$H/J261110-1.html" && ! grep -q "不过 <a[^>]*>[^<]*</a>=80" "$H/J261110-1.html"'
+bash "$PT" site --out "$T/elsewhere" >/dev/null 2>&1
+check "--out 指到别处：不给旧研究总览与研究树图（避免坏链接）" '[ -f "$T/elsewhere/p/rr.html" ] && ! grep -q "研究总览" "$T/elsewhere/index.html" && ! grep -q "研究树图\|tree.html" "$T/elsewhere/p/rr.html"'
 check "站点不进项目档案"                      '[ -z "$(git -C "$R" status --porcelain)" ] && [ "$(git -C "$E" status --porcelain)" = " M charter.md" ]'   # ee 的 charter 是上面故意改的
 
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

@@ -84,6 +84,9 @@ Codex 没有 SessionStart hook，resume 时由 skill 自己跑 `pt.sh brief <slu
 PT=~/.claude/plugins/cache/project-tracker/project-tracker/0.4.0/skills/project-tracker/scripts/pt.sh
 bash $PT list [--tsv]                          # 算出来的总览 + 每个项目的主机、名称与 Workdir（中心机先同步）
 bash $PT results <slug> [--all]                # 得到了什么：已关节点按日期、未关节点的台账行、plan 与已推送
+bash $PT get <slug> <编号> [--page N]          # 按编号取单条：节点的卡、台账行、ADR、条件 G1、journal 条目 J260927-3
+bash $PT find <slug> <词> [词 ...]             # 在程序生成的目录 <slug>/index.tsv（一行一条）里找
+bash $PT conditions <slug>                     # 完成标准的 G 行，状态只从点名它的判定里算
 bash $PT where                                 # 当前目录命中的、本机的进行中项目
 bash $PT auto                                  # SessionStart hook 跑的
 bash $PT brief <slug>                          # 按恢复顺序输出简报，设 ACTIVE
@@ -92,12 +95,28 @@ bash $PT index <slug> "<一句话>" [状态]        # 写一句话/状态、提�
 bash $PT research <slug>                       # 研究项目：加 verifier.md、experiments.md、tree/Q1.md
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # 研究树：打印上下文，重写 tree.html
 bash $PT monitor [--out PATH]                  # 全局研究监控：所有研究项目汇成档案根的 research.html
-bash $PT serve [install|status|uninstall]      # 只读发布 research.html / tree.html 到 tailnet
+bash $PT site [--out DIR]                      # 给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/
+bash $PT serve [install|status|uninstall]      # 只读发布 site/、research.html / tree.html 到 tailnet
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
 bash $PT sync [-q] [别名 ...]                  # 中心机：与节点快进同步
 bash $PT dispatch <slug> "<任务>" [--wait]     # 中心机：派节点本机的 Claude 干活
 bash $PT runs [slug | --wait <run>]            # 中心机：派活状态
 ```
+
+### 短卡、条件与按编号取（0.9.0）
+
+- **短卡**：节点 `## 结论` 与 journal「结果」条目的第一段写四行 `目的：` `怎么做：` `结果：` `结论：`（问题节点两行 `目的：` `结果：`），
+  ≤800 字节。简报、`pt results`、`pt get` 与页面都取它；没有卡的旧节点取结论首句、标「原文摘取」。journal 条目编号
+  J + 标题日期 YYMMDD + 当天第几条（`J260927-3`）。
+- **条件行**：charter「完成标准」一条一行 `- G1 陈述 | 线: ≤2 mm | 尺: 怎么量 | 来源: 用户定`。线只有用户能定，没定写
+  `线: 待用户（推荐 ≤2 mm）`。状态（过 / 不过 / 未测 / 线未定 / 不再适用）只从点名它的判定里算（台账结论列 `过 G2` /
+  `不过 G2=15.3`，journal「结果」条目 `G3 过 <证据>`）；线没定时写的过 / 不过只当读数显示，`pt lint` 提示。
+- **目录**：`<slug>/index.tsv` 一行一条（节点、台账行、条件、ADR、journal 条目；程序生成，不进提交）；`pt get`、`pt find`
+  按编号取，不必读整份文件。
+- **定长简报**：`pt brief` 整份 ≤8 KB，各块定长（lint、state、焦点问题的当前认识、条件、最近 5 张卡、前沿、去哪找），
+  不随档案变大；开工只读简报。
+- **`pt site`**：三层静态页面（全部项目 → 项目 → 节点 / journal 条目），从记录渲染、不调模型；`pt monitor` 顺带生成，
+  `pt serve` 把它当首页。
 
 ### 研究树（可选）
 
@@ -116,7 +135,8 @@ closed 缺 verdict 或结论、台账指向不存在的节点、成环）；`--a
 
 `pt serve` 把 `research.html` 与各 `<slug>/tree.html` 只读地发到你的 tailnet 内。服务只监听 `127.0.0.1`，
 `pt serve install` 在前面挂上 `tailscale serve`（只在 tailnet 内的 HTTPS，不开 Funnel）。档案里别的东西一概不发：
-只有 `/`、`/research.html`，和真实存在（不是符号链接）、含 `tree/` 的项目目录的 `/<slug>/tree.html`，其余 404，只允许 GET / HEAD。
+只有 `/`、`/research.html`、真实存在（不是符号链接）、含 `tree/` 的项目目录的 `/<slug>/tree.html`，和生成的站点 `/site/`，其余 404，只允许 GET / HEAD。
+档案根下有站点 `site/`（含 `.pt-site` 标记）时 `/` 302 到 `/site/`，没有时仍是 `research.html`；`/research.html` 一直能访问，站点首页有「研究总览（旧版）」入口。
 
 身份：`tailscale serve` 给每个转进来的请求加 `Tailscale-User-Login` 头。只有这个头在白名单里才应答，没有这个头一律 403，
 所以 tailnet 是团队共用的也没关系。配置写在 `<档案根>/.serve.conf`（本机文件，不进任何仓库；没有它服务拒绝启动）：
