@@ -247,6 +247,7 @@ cmd_list() {
   [ -d "$ROOT" ] || die "没有 $ROOT（还没有任何项目）"
   local a nosync="${PT_NO_SYNC:-}" tsv=""
   for a in "$@"; do case "$a" in --no-sync) nosync=1 ;; --tsv) tsv=1 ;; *) die "用法: pt.sh list [--no-sync] [--tsv]" ;; esac; done
+  [ -n "$nosync" ] || off_root_note
   if is_hub && [ -z "$nosync" ]; then
     if [ -n "$tsv" ]; then fleet_sync -q >/dev/null 2>&1; else fleet_sync -q --summary; fi
   fi
@@ -658,7 +659,7 @@ cmd_index() {
 # 节点上的副本不动。ACTIVE、有会话绑定、有派活在跑的不删
 cmd_rm() {
   [ $# -gt 0 ] || die "用法: pt.sh rm <slug> ..."
-  is_hub || die "pt rm 只在中心机（有 $ROOT/FLEET 的机器）上用"
+  is_hub || die "pt rm 只在中心机（有 $ROOT/FLEET、档案根是默认位置）上用"
   local s bk b active rc=0
   active="$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
   mkdir -p "$ROOT/.backup"
@@ -753,7 +754,7 @@ case "${1:-}" in
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
   monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)
-            is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
+            is_hub || { off_root_note; die "这台机器不是中心机（没有 $ROOT/FLEET，或档案根不是默认位置）"; }
             c="$1"; shift; "fleet_$c" "$@" ;;
   *)        sed -n '2,24p' "$0"; exit 1 ;;
 esac

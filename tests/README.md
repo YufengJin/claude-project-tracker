@@ -5,7 +5,7 @@
 夹具 charter 的 `Workdir: {{WORKDIR}}` 由 run.sh 替换成运行目录，并把 `PROJECT_TRACKER_ROOT` 指向夹具的 `.claude/project`，
 这样全局根就是夹具，hook 和 pt.sh 都读它。
 
-`progress.sh` 不调模型，测算出来的总览（最近活动的来源与排除、合并后的历史、跨年、只认行首的待用户标签、截断、重开）、`pt results`、lint 的三项进度检查与 tree.html 结果页。
+`progress.sh` 不调模型，测算出来的总览（最近活动的来源与排除、合并后的历史、跨年、待用户标签与旧格式待拍板条数、截断、重开、副本根不同步）、`pt results`（考官与门槛摘录、标题、台账列）、lint 的三项进度检查与 tree.html 结果页。
 
 `unit.sh` 不调模型，直接测 pt.sh 的每个子命令和隔离规则（无关目录静默、多命中只列 slug、brief 不含其他项目），几秒跑完。
 研究树部分用合成样例测 `tree.py` 与 brief / index / research 的集成（多根、多节点挂接、转义竖线、悬空 parent/by/node、

@@ -50,7 +50,7 @@ lst
 check "合并提交与 autosync 不算；另一台机器的节点变化经合并认得出" 'row mrg | grep -q "| 2026-11-08 节点 | 8 天 |"'
 check "进度：active / 已关"                          'row mrg | grep -q "| active 1 / 已关 1 |"'
 
-echo "# 等用户：只认待拍板小节里行首的 [待用户 MM-DD]"
+echo "# 等用户：待拍板/待用户/等用户小节；有日期只认行首的 [待用户 MM-DD]，旧格式只数条目"
 mk pend; redate pend 2026-11-15; cm pend 2026-11-15 x
 python3 - "$R/pend/state.md" <<'PY'
 import re,sys; p=sys.argv[1]; s=open(p).read()
@@ -65,7 +65,14 @@ python3 - "$R/pend/state.md" <<'PY'
 import sys; p=sys.argv[1]; s=open(p).read(); s=s.replace("2. [待用户 11-14] 第二件\n","2. [待用户 11-14] 第二件\n3. 旧写法没有标签\n"); open(p,"w").write(s)
 PY
 lst
-check "待拍板里有不带标签的条目（旧格式）显示 —"       'row pend | grep -q " 天 | — |"'
+check "待拍板里有不带标签的条目（旧格式）只数顶层条目、无日期" 'row pend | grep -q " 天 | 3（旧格式，无日期） |"'
+mk leg; redate leg 2026-11-14; cm leg 2026-11-14 x
+printf '# s\n## 现在\n乱写\n\n## 待拍板（用户）\n1. 甲\n   续行不算一条\n   - 子条目也不算\n2. 乙：正文里的 [待用户 11-01] 不算日期\n\n## 还留着（待用户定是否删）\n- 丙\n\n## 下一步\n- 等用户回话（正文不猜）\n' > "$R/leg/state.md"
+printf '# s\n## 现在\n乱写\n\n## 等用户\n暂无\n' > "$R/hand/state.md"
+lst
+check "旧格式：标题含待拍板/待用户的小节都数，续行与子条目不算" 'row leg | grep -q " 天 | 3（旧格式，无日期） |"'
+check "旧格式小节写「暂无」算 0"                       'row hand | grep -q " 天 | 0 |"'
+check "INDEX 说明「—」不等于没在等"                    'grep -q "「—」= 没有这种小节，不等于没在等" "$R/INDEX.md"'
 check "state 不合格又没有待拍板小节显示 —"            'printf "# s\n## 现在\n乱写\n" > "$R/hand/state.md"; lst; row hand | grep -q "天 | — |"'
 check "跨年：12-30 的待用户到 2027-01-03 是 4 天"     'python3 - "$R/pend/state.md" <<PY
 import sys; p=sys.argv[1]; s=open(p).read(); s=s.replace("3. 旧写法没有标签\n","").replace("[待用户 11-10]","[待用户 12-30]").replace("[待用户 11-14]","[待用户 01-02]"); open(p,"w").write(s)
@@ -82,7 +89,7 @@ node para H1 "还开着" Q1 active "" ""; sed -i 's/^Status:.*/Status: 暂停/' 
 lst
 check "进行中 14 天没活动标 ⚠停滞"                  'row old | grep -q "^| old | 进行中 ⚠停滞 |"'
 check "暂停但树上还有 active 标 ⚠矛盾"              'row para | grep -q "^| para | 暂停 ⚠矛盾（树上 2 个 active） |"'
-check "排序：等用户 > 停滞 > 矛盾 > 其余"            '[ "$(grep -o "^| [a-z]* |" "$R/INDEX.md" | tr -d "| " | head -n 3 | tr "\n" " ")" = "pend old para " ]'
+check "排序：等用户（有日期）> 等用户（旧格式）> 停滞 > 矛盾 > 其余" '[ "$(grep -o "^| [a-z]* |" "$R/INDEX.md" | tr -d "| " | head -n 4 | tr "\n" " ")" = "pend leg old para " ]'
 out=$(bash "$PT" lint old done para)
 check "lint idle"                                    'grep -q "^old: idle: 进行中，但最近活动 2026-10-01（journal）已过 46 天" <<<"$out"'
 check "lint plan-open"                               'grep -q "^done: plan-open: 已完成，但 plan.md 还有 1 个未勾项" <<<"$out"'
@@ -128,18 +135,29 @@ def node(i, t, st, v, concl):
 node("H2","写了日期的","closed","verdict: supported\n","成立（2026-10-20，E2）：读数 0.9。后面不算。")
 node("H3","没写日期的","closed","verdict: refuted\n","不成立：E3 掉分。")
 node("H4","还开着的","active","","")
-open(os.path.join(d,"experiments.md"),"a").write("\n| id | node | 问题 / 对照 | 读数 | 运行 | 结论 | 证据 |\n|---|---|---|---|---|---|---|\n| E2 | H2 | a | 0.9 | r | 支持 | p |\n| E3 | H3 | b | 0.1 | r | 不支持 | p |\n| E4 | H4 | c | 0.5 | r |  | p |\n| E5 | H4 | d | 0.6 | r | 部分 | p |\n")
+open(os.path.join(d,"experiments.md"),"a").write("\n| id | node | 问题 / 对照 | 读数 | 运行 | 结论 | 证据 |\n|---|---|---|---|---|---|---|\n| E2 | H2 | a | 0.9 | r | 支持 | p |\n| E3 | H3 | b | 0.1 | r | 不支持 | p |\n| E4 | H4 | c | 0.5 | r |  | p |\n| E5 | H4 | d | 0.6 | r | 部分 | p |\n| E6 | H4 | e | 完成：0.7 | r | 预测：0.8 | p |\n| E7 | H4 | f 漏了几格 | 0.9 |\n")
 PY
 cm mrg 2026-11-16 "checkpoint @host-me: H2 H3 关"
 node mrg H5 "刚关还没提交" Q1 closed 'verdict: abandoned\n' "放弃。"
 out=$(bash "$PT" results mrg)
 check "已关节点按日期倒序：未提交 > 入档 > 结论里写的日期"  '[ "$(grep -oE "^(未提交|入档 [0-9-]+|[0-9-]{10}) H[0-9]+" <<<"$out" | tr "\n" ";")" = "未提交 H5;入档 2026-11-16 H3;入档 2026-11-08 H1;2026-10-20 H2;" ]'
-check "行格式：日期 ID verdict 结论首句 [台账 id]"    'grep -qx "2026-10-20 H2 supported 成立（2026-10-20，E2）：读数 0.9。 \[E2\]" <<<"$out"'
-check "未关节点的台账行（结论空的给读数）"            'grep -qx "E5 H4\[active\] 部分" <<<"$out" && grep -qx "E4 H4\[active\] 0.5" <<<"$out"'
+check "行格式：日期 ID verdict 标题 — 结论首句 [台账 id]" 'grep -qx "2026-10-20 H2 supported 写了日期的 — 成立（2026-10-20，E2）：读数 0.9。 \[E2\]" <<<"$out"'
+check "未关节点的台账行：读数与结论各带列名"          'grep -qx "E5 H4\[active\] 读数：0.6 ｜ 结论：部分" <<<"$out" && grep -qx "E4 H4\[active\] 读数：0.5" <<<"$out"'
+check "结论列写的是预测也照列名给，读数不丢"          'grep -qx "E6 H4\[active\] 读数：完成：0.7 ｜ 结论：预测：0.8" <<<"$out"'
+check "格数与表头不符的行原样给，不按列名猜"          'grep -qx "E7 H4\[active\] （格数与表头不符，原样）H4 | f 漏了几格 | 0.9" <<<"$out"'
+check "verifier.md 还是模板占位时给一行指针"          'grep -qx "考官与门槛：见 verifier.md（没有标题含门槛 / 指标 / 主分的小节可摘）" <<<"$out"'
+printf '# 考官卡\n\n## 目标与真值\n不摘这节\n\n## 指标与聚合定义\n- 主分：bop 均值\n%s\n过线：主分 ≥ 0.75\n\n## 判定依据\n不摘\n' "$(for k in $(seq 30); do printf -- "- 长说明 %s 很长很长很长很长很长很长\n" "$k"; done)" > "$R/mrg/verifier.md"
+out=$(bash "$PT" results mrg)
+gate=$(sed -n "/^考官与门槛/,/^现在最信的一条/p" <<<"$out")
+check "考官与门槛：摘标题含指标的小节、过线行先保、不超过 600 字节" 'sed -n 2p <<<"$out" | grep -q "^考官与门槛（摘自 verifier.md「指标与聚合定义」" && grep -q "过线：主分 ≥ 0.75" <<<"$gate" && grep -q "主分：bop 均值" <<<"$gate" && ! grep -q "不摘" <<<"$gate" && [ "$(sed "1d;\$d" <<<"$gate" | wc -c)" -le 700 ]'
+printf '# 考官卡\n\n## 目标与真值\n只有目标\n' > "$R/mrg/verifier.md"
+check "摘不到给一行指针"                              'bash "$PT" results mrg | grep -qx "考官与门槛：见 verifier.md（没有标题含门槛 / 指标 / 主分的小节可摘）"'
+rm "$R/mrg/verifier.md"
+check "没有 verifier.md 不出考官与门槛"               '! bash "$PT" results mrg | grep -q "考官与门槛"'
 for k in $(seq 60); do node mrg "H$((k+10))" "批量 $k $(printf '长%.0s' $(seq 40))" Q1 closed 'verdict: refuted\n' "否 $(printf '长%.0s' $(seq 40))。"; done
 out=$(bash "$PT" results mrg); full=$(bash "$PT" results mrg --all)
-check "默认不超过 4 KB，截掉的给去处"                 '[ "$(printf "%s\n" "$out" | wc -c)" -le 4096 ] && grep -q "本节另有 .* 条未列：pt results mrg --all" <<<"$out" && grep -q "E5 H4" <<<"$out"'
-check "--all 全量"                                   '[ "$(grep -c " refuted 否 " <<<"$full")" = 60 ]'
+check "默认不超过 4 KB，截掉的给去处，标题截断"         '[ "$(printf "%s\n" "$out" | wc -c)" -le 4096 ] && grep -q "本节另有 .* 条未列：pt results mrg --all" <<<"$out" && grep -q "E7 H4" <<<"$out" && grep -q " refuted 批量 [0-9]* 长*… — 否 " <<<"$out"'
+check "--all 全量"                                   '[ "$(grep -c " refuted 批量 .* — 否 " <<<"$full")" = 60 ]'
 mk eng; redate eng 2026-11-16; printf -- '# 计划\n- [x 11-01] 第一步 → 证据 a\n- [ ] 第二步\n' > "$R/eng/plan.md"
 python3 - "$R/eng/state.md" <<'PY'
 import sys; p=sys.argv[1]; s=open(p).read(); s=s.replace("## 入口与产物","## 线程\n- [已推送 abc1234] 修好了 X\n- [进行中] 别的\n\n## 入口与产物"); open(p,"w").write(s)
@@ -151,7 +169,15 @@ echo "# tree.html：节点标题下的 verdict 与结论首句、结果页"
 bash "$PT" tree mrg >/dev/null; H="$R/mrg/tree.html"
 check "列表里已关节点标题下一行 verdict + 结论首句"   'grep -q "<div class=cs title=\"成立（2026-10-20，E2）：读数 0.9。\"><span class=\"b v-supported\">supported</span> 成立" "$H"'
 check "结果页与入口"                                 'grep -q "<article id=\"n-__results\" hidden><h2>结果 · mrg</h2>" "$H" && grep -q "<a href=\"#__results\">结果</a></header>" "$H"'
+check "结果页：已关节点带标题，台账行读数与结论各带列名" 'grep -q "<td>写了日期的 — 成立（2026-10-20，E2）" "$H" && grep -q "<td>读数：完成：0.7 ｜ 结论：预测：0.8</td>" "$H"'
 check "图数据带结论首句"                              'grep -q "\"c\":\"不成立：E3 掉分。\"" "$H"'
+
+echo "# 档案根不是默认位置（副本）时不做多机同步"
+printf 'nohost\n' > "$R/FLEET"
+err=$(PT_SSH=false PT_GIT_SSH=false bash "$PT" list 2>&1 >/dev/null)
+check "pt list 不同步、说明原因"                       'grep -q "不是默认位置：不做多机同步" <<<"$err" && [ ! -e "$R/.fleet/hosts/nohost" ]'
+check "pt sync 拒绝"                                   '! PT_SSH=false PT_GIT_SSH=false bash "$PT" sync >/dev/null 2>&1 && [ ! -e "$R/.fleet/hosts/nohost" ]'
+rm "$R/FLEET"
 
 echo
 echo "passed=$pass failed=$fail"

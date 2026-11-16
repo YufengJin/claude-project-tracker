@@ -10,7 +10,17 @@ IDLE="${PT_IDLE:-1800}"                      # 节点未提交改动空闲这么
 QUIET="${PT_QUIET:-900}"                     # 推给节点前要求它这么久没改过档案
 TMUX_CMD="${PT_TMUX:-tmux}"
 
-is_hub() { [ -f "$ROOT/FLEET" ]; }
+# 档案根不在默认位置（~/.claude/project，例如拷出来的副本）时不当中心机：不同步、不派活，免得把副本推给节点。
+# 测试用 PT_SYNC_ANY_ROOT=1 放开
+is_hub() {
+  [ -f "$ROOT/FLEET" ] || return 1
+  [ -n "${PT_SYNC_ANY_ROOT:-}" ] && return 0
+  [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$(cd "$HOME/.claude/project" 2>/dev/null && pwd -P)" ]
+}
+off_root_note() {
+  [ -f "$ROOT/FLEET" ] && ! is_hub && echo "[project-tracker] 档案根 $ROOT 不是默认位置：不做多机同步（PT_SYNC_ANY_ROOT=1 放开）" >&2
+  return 0
+}
 fleet_aliases() { sed 's/#.*//' "$ROOT/FLEET" | awk 'NF{print $1}'; }
 rssh() { local a=$1; shift; timeout "${PT_SSH_TIMEOUT:-90}" $SSH_CMD "$a" "$@"; }
 gssh() { timeout 180 env GIT_SSH_COMMAND="${PT_GIT_SSH:-$SSH_CMD}" git "$@"; }

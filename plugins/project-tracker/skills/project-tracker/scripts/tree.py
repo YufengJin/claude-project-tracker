@@ -1392,22 +1392,24 @@ def results_html(t):
                                           if r["belief"] else "<p class=meta>—（根节点没有「当前认识」）</p>"))
     o.append(f"<h3>已关节点（{len(r['closed'])} 个，日期新→旧）</h3>")
     if r["closed"]:
-        o.append("<div class=tw><table class=res><thead><tr><th>日期</th><th>节点</th><th>verdict</th><th>结论首句</th><th>台账</th></tr></thead><tbody>")
+        o.append("<div class=tw><table class=res><thead><tr><th>日期</th><th>节点</th><th>verdict</th><th>标题 — 结论首句</th><th>台账</th></tr></thead><tbody>")
         for c in r["closed"]:
             date = {"结论": c["date"], "入档": f"入档 {c['date']}", "未提交": "未提交"}[c["how"]]
             n = t.nodes[c["id"]]
             o.append(f'<tr><td>{esc(date)}</td><td><a class=ref href="#{esc(c["id"])}">{esc(c["id"])}</a></td>'
-                     f'<td>{badge(n)}</td><td>{inline(c["first"], t) if c["first"] else "(无结论)"}</td>'
+                     f'<td>{badge(n)}</td><td>{esc(results.progress.cut(c["title"].replace("**", ""), results.TITLE_WIDTH))} — '
+                     f'{inline(c["first"], t) if c["first"] else "(无结论)"}</td>'
                      f'<td>{esc(", ".join(c["ledger"]))}</td></tr>')
         o.append("</tbody></table></div>")
     else:
         o.append("<p class=meta>(无)</p>")
     o.append(f"<h3>挂在未关节点上的台账行（{len(r['open_rows'])} 行，后写的在前）</h3>")
     if r["open_rows"]:
-        o.append("<div class=tw><table class=res><thead><tr><th>实验</th><th>节点</th><th>结论（空的给读数）</th></tr></thead><tbody>")
+        o.append("<div class=tw><table class=res><thead><tr><th>实验</th><th>节点</th><th>读数 ｜ 结论（照表头列名）</th></tr></thead><tbody>")
         for x in r["open_rows"]:
             nodes = " ".join(f'<a class=ref href="#{esc(i)}">{esc(i)}</a> {esc(st)}' for i, st in x["nodes"])
-            o.append(f"<tr><td>{esc(x['id'])}</td><td>{nodes}</td><td>{inline(x['text'], t) if x['text'] else '—'}</td></tr>")
+            txt = results.ledger_text(x)
+            o.append(f"<tr><td>{esc(x['id'])}</td><td>{nodes}</td><td>{inline(txt, t) if txt else '—'}</td></tr>")
         o.append("</tbody></table></div>")
     else:
         o.append("<p class=meta>(无)</p>")

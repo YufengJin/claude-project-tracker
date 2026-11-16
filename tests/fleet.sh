@@ -8,7 +8,7 @@ T=$(mktemp -d)
 export FAKE_HOSTS="$T/hosts" PT_SCRIPT="$PT"
 export PROJECT_TRACKER_ROOT="$T/hub/.claude/project" PT_HOSTNAME=host-hub
 export PT_SSH="$S/fakessh" PT_GIT_SSH="$S/fakessh" PT_CLAUDE="$S/fakeclaude"
-export PT_QUIET=0 PT_IDLE=100000 PT_WAIT_INTERVAL=1
+export PT_QUIET=0 PT_IDLE=100000 PT_WAIT_INTERVAL=1 PT_SYNC_ANY_ROOT=1
 export PT_TMUX="tmux -L pttest$$-\$PT_HOSTNAME"
 cleanup() { for h in a b c; do tmux -L "pttest$$-host-$h" kill-server 2>/dev/null; done; rm -rf "$T"; }
 trap cleanup EXIT

@@ -10,11 +10,12 @@
             中心机同步发现与节点分叉标「⚠分叉」
   最近活动  只看档案，取最晚者并注来源：提交（不算 autosync、合并，以及提交说明标明是批量迁移或同步的）、
             journal 非「运维」条目的标题日期、研究树节点 status/verdict 变化（取自 git 历史）
-  等用户    state「## 待拍板」里行首 [待用户 MM-DD] 的条数与最老天数；该节有不带这个标签的条目（旧格式）显示「—」
+  等用户    state 里标题含「待拍板」「待用户」「等用户」的二级小节：条目都以 [待用户 MM-DD] 开头的给条数与最老天数；
+            否则（旧格式）给顶层列表项的条数「N（旧格式，无日期）」；写「无」或为空算 0；没有这种小节显示「—」（正文不猜）
   进度      研究项目 active / 已关节点数；工程项目 plan 勾选 x/y
   在跑      本机 ~/.fleet/jobs 里记了这个 slug、还在跑的 fleet 任务数（fleet run 时会话绑了项目才记）
   现在最信的一条  根节点（研究项目）或 state（工程项目）「## 当前认识」第 1 条，截到一行
-排序：等用户 > 进行中但 14 天没活动 > 状态矛盾 > 其余按最近活动。只用标准库。
+排序：等用户（有日期的在前，旧格式无日期的随后）> 进行中但 14 天没活动 > 状态矛盾 > 其余按最近活动。只用标准库。
 """
 import datetime as dt
 import json
@@ -34,9 +35,10 @@ STATUS_VALUES = ("进行中", "暂停", "已完成", "已放弃")
 # 不算活动的提交：同步、合并、迁移，以及提交说明标明是批量迁移或整理档案格式的（规范主机名、记忆迁入、按 pt 新约定重写 state/tree）
 SKIP_COMMIT = re.compile(r"^(autosync @|migrate to |journal-archive @|Merge |规整[：:]|charter: (Host|Workdir)|Workdir 由)"
                          r"|迁入|^(state|tree)[：:].*(新约定|快照|pt v?\d+\.\d+)")
+PEND_HEADS = ("待拍板", "待用户", "等用户")
 PEND_TAG = re.compile(r"^\[待用户\s*(\d{1,2})-(\d{1,2})\]")
 ITEM_MARK = re.compile(r"^(\d+[.)、]|[-*+])\s*")
-NONE_LINE = re.compile(r"^[-*]?\s*[（(]?(无|none|—|-)[）)]?\s*$", re.I)
+NONE_LINE = re.compile(r"^[-*]?\s*[（(]?(无|暂无|none|—|-)[）)]?[。.]?\s*$", re.I)
 PLAN_DONE = re.compile(r"^\s*[-*]\s*\[[xX✓]")
 PLAN_ANY = re.compile(r"^\s*[-*]\s*\[[ xX✓]")
 NODE_PATH = re.compile(r"^tree/([QH][1-9][0-9]*)\.md$")
@@ -297,17 +299,16 @@ def journal_dates(d):
 
 
 def pending(state, ok):
-    """(条数, [MM-DD…]) 或 None（算不出：旧格式）。"""
-    body = state_section(state, "待拍板")
-    if body is None:
-        return (0, []) if ok else None
-    tags = []
-    for e in entries(body):
-        m = PEND_TAG.match(ITEM_MARK.sub("", e, count=1))
-        if not m:
-            return None
-        tags.append(f"{int(m.group(1)):02d}-{int(m.group(2)):02d}")
-    return len(tags), tags
+    """([MM-DD…], None)：条目都带 [待用户 MM-DD]；(None, 条数)：旧格式，只数顶层列表项（没有列表就数顶格行）；
+    (None, None)：没有标题含待拍板/待用户/等用户的二级小节（合格的 state 没有这节算 0）。只看小节标题，正文不猜。"""
+    secs = [body for h, body in sections(tree.strip_comments(state)) if any(k in h for k in PEND_HEADS)]
+    if not secs:
+        return ([], None) if ok else (None, None)
+    ents = [e for body in secs for e in entries(body)]
+    tags = [PEND_TAG.match(ITEM_MARK.sub("", e, count=1)) for e in ents]
+    if all(tags):
+        return [f"{int(m.group(1)):02d}-{int(m.group(2)):02d}" for m in tags], None
+    return None, (sum(1 for e in ents if ITEM_MARK.match(e)) or len(ents))
 
 
 def belief_of(d, t, state):
@@ -373,7 +374,7 @@ def facts(d):
          "status": status_of(charter), "status_raw": field(charter, "Status"),
          "commit": commit_activity(d), "journal": journal_dates(d),
          "node": last_node_change(d) if t is not None else "",
-         "pend": None if pend is None else pend[1],
+         "pend": pend[0], "pend_old": pend[1],
          "belief": belief, "belief_src": bsrc,
          "summary": next((x.strip() for x in (state_section(state, "一句话概括") or []) if x.strip()), ""),
          "research": t is not None, "active": [], "closed": 0, "plan": None}
@@ -389,7 +390,7 @@ def facts(d):
     return f
 
 
-CACHE_VER = "1"
+CACHE_VER = "2"
 
 
 def cache_key():
@@ -468,7 +469,7 @@ def row(slug, d, f, ref, run, me, aliases):
     r["workdir"] = field(charter, "Workdir")
     r["days"] = (ref - dt.date.fromisoformat(r["act"])).days if r["act"] else None
     if f["pend"] is None:
-        r["pend_n"] = r["pend_days"] = None
+        r["pend_n"], r["pend_days"] = f.get("pend_old"), None
     else:
         ds = [year_of(int(x[:2]), int(x[3:]), ref) for x in f["pend"]]
         ds = [x for x in ds if x]
@@ -517,16 +518,16 @@ def collect(root, me, ref=None):
 
 def tier(r):
     if r["pend_n"]:
-        return 0
+        return 0 if r["pend"] is not None else 1
     if r["idle"]:
-        return 1
-    if r["contra"]:
         return 2
-    return 3
+    if r["contra"]:
+        return 3
+    return 4
 
 
 def order(rows):
-    """等用户（最老的在前）> 停滞 > 矛盾 > 其余；同一档按最近活动从新到旧，算不出的垫底。"""
+    """等用户（有日期的最老在前，旧格式无日期的随后）> 停滞 > 矛盾 > 其余；同一档按最近活动从新到旧，算不出的垫底。"""
     rows = sorted(rows, key=lambda r: r["slug"])
     rows.sort(key=lambda r: r["act"] or "", reverse=True)
     rows.sort(key=lambda r: (tier(r), -(r["pend_days"] or 0) if tier(r) == 0 else 0))
@@ -549,6 +550,8 @@ def cells(r, width=BELIEF_WIDTH):
         pend = "—"
     elif r["pend_n"] == 0:
         pend = "0"
+    elif r["pend"] is None:
+        pend = f"{r['pend_n']}（旧格式，无日期）"
     else:
         pend = f"{r['pend_n']}（最老 {r['pend_days']} 天）" if r["pend_days"] is not None else str(r["pend_n"])
     if r["research"]:
@@ -569,7 +572,8 @@ def md_cell(s):
 def index_md(rows):
     out = ["# 项目索引", "",
            "由 pt.sh 从各项目档案算出，不要手改。排序：等用户 > 进行中但 14 天没活动（⚠停滞）> 状态矛盾（⚠矛盾）> 其余按最近活动。",
-           "最近活动只看档案：提交（不算 autosync、合并与批量迁移）、journal 非运维条目、研究树节点状态变化，取最晚者；— 表示算不出。", "",
+           "最近活动只看档案：提交（不算 autosync、合并与批量迁移）、journal 非运维条目、研究树节点状态变化，取最晚者；— 表示算不出。",
+           "等用户只数 state 里标题含「待拍板 / 待用户 / 等用户」的小节；「—」= 没有这种小节，不等于没在等（正文里写的等用户不算）。", "",
            "| " + " | ".join(COLS) + " |", "|" + "---|" * len(COLS)]
     for r in rows:
         out.append("| " + " | ".join(md_cell(c) for c in cells(r)) + " |")
@@ -585,7 +589,8 @@ def tsv(rows):
     for r in rows:
         c = cells(r, 10 ** 6)
         v = dict(r, progress="" if c[5] == "—" else c[5],
-                 flags=",".join(x for x, y in (("等用户", r["pend_n"]), ("停滞", r["idle"]), ("矛盾", r["contra"])) if y))
+                 flags=",".join(x for x, y in (("等用户" if r["pend"] is not None else "等用户（旧格式）", r["pend_n"]),
+                                              ("停滞", r["idle"]), ("矛盾", r["contra"])) if y))
         out.append("\t".join("" if v.get(k) is None else " ".join(str(v[k]).split()) for k in TSV_KEYS))
     return "\n".join(out) + "\n"
 
