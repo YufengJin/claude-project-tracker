@@ -109,4 +109,28 @@ check "简报 ≤8 KB，有条件块、最近卡、去哪找"  '[ "$(printf "%s\
 out=$(bash "$PT" brief ee)
 check "工程项目简报：条件未登记、journal 标题" 'grep -q "^===== 条件：未登记" <<<"$out" && grep -q "^===== journal 最近" <<<"$out" && ! grep -q "= 前沿" <<<"$out"'
 
+echo "# 给人看的站点（pt site）"
+out=$(bash "$PT" site 2>&1)
+SITE="$T/root/site"
+check "生成三层：总览、两类项目页、节点页"   'grep -q "^site：" <<<"$out" && [ -f "$SITE/index.html" ] && [ -f "$SITE/p/rr.html" ] && [ -f "$SITE/p/ee.html" ] && [ -f "$SITE/p/rr/H1.html" ] && [ -f "$SITE/p/rr/Q2.html" ] && [ -f "$SITE/.pt-site" ]'
+P="$SITE/p/rr.html"; H="$SITE/p/rr"
+check "总览：判词色条、条件过 x/y、工程项目条件未登记" 'grep -q "class=\"bar\"" "$SITE/index.html" && grep -q "条件过 0/" "$SITE/index.html" && grep -q "条件未登记" "$SITE/index.html"'
+check "项目页：条件表（线未定不画差距、不再适用）" 'grep -q "<th>差多少</th>" "$P" && grep -q "id=\"cond-G4\"" "$P" && grep -q "线未定" "$P" && grep -q "不再适用" "$P" && grep -q "研究树图" "$P"'
+check "条件表：最好值离线差多少（按线的方向）" 'grep -q "<td data-l=\"差多少\">差 5.3</td>" "$P" && grep -q "<td data-l=\"差多少\">已到线</td>" "$P"'
+check "项目页：最近有结论的实验、按问题分组、可筛" 'grep -q "<h2>最近有结论的实验</h2>" "$P" && grep -q "id=\"g-Q1\"" "$P" && grep -q "data-f=\"已判\"" "$P" && grep -q "data-f=\"搁置\"" "$P"'
+check "项目页：编号换成短标题与「证据」，不裸露" 'grep -q ">证据</a>" "$P" && ! sed "s/<[^>]*>//g" "$P" | grep -qE "(^|[^A-Za-z0-9])(E1|E2|H1|H2|Q2)([^A-Za-z0-9]|$)"'
+check "节点页：卡在上、证据表、判据、原文、释义"  'grep -q "<dt>怎么做</dt><dd>平面拟合加先验" "$H/H1.html" && grep -q "id=\"row-E1\"" "$H/H1.html" && grep -q "<h2>事先定的判据</h2>" "$H/H1.html" && grep -q "节点原文" "$H/H1.html" && grep -q "<h2>本页编号与术语</h2>" "$H/H1.html"'
+check "节点页：原文摘取、更正后的说法、未跑、已答" 'grep -q "原文摘取" "$H/H2.html" && grep -q "（更正）读数属实但口径错" "$H/H2.html" && grep -q ">未跑<" "$H/H3.html" && grep -q ">已答<" "$H/Q2.html" && grep -q "M1" "$H/Q2.html"'
+check "工程项目页：条件未登记原样列旧写法、最近结果与决定" 'grep -q "未登记" "$SITE/p/ee.html" && grep -q "旧写法的完成标准：能跑通" "$SITE/p/ee.html" && grep -q "<h2>最近的结果</h2>" "$SITE/p/ee.html" && grep -q "<h2>最近的决定</h2>" "$SITE/p/ee.html" && ! grep -q "研究树图" "$SITE/p/ee.html"'
+check "不依赖外网资源、亮暗两套、单页 ≤1 MB"  '! grep -rlE "(src|href)=\"(https?:)?//" "$SITE" && grep -q "prefers-color-scheme:dark" "$P" && [ -z "$(find "$SITE" -name "*.html" -size +1000k)" ]'
+printf '\n内网 100.64.1.2:8443，token=abcdefgh12345\n' >> "$R/tree/H5.md"
+bash "$PT" site >/dev/null 2>&1
+check "页面隐去内网地址与口令"                '! grep -rq "100.64.1.2\|abcdefgh12345" "$SITE" && grep -q "内网地址" "$H/H5.html"'
+git -C "$R" checkout -q -- tree/H5.md
+mkdir -p "$T/notsite"; echo x > "$T/notsite/keep.txt"
+check "--out 指向别的非空目录：拒绝覆盖"      '! bash "$PT" site --out "$T/notsite" 2>/dev/null && [ -f "$T/notsite/keep.txt" ]'
+rm -rf "$SITE"; python3 "$(dirname "$PT")/monitor.py" "$T/root" >/dev/null 2>&1
+check "pt monitor 顺带生成站点；research.html 有入口" '[ -f "$SITE/p/ee.html" ] && grep -q "site/index.html" "$T/root/research.html"'
+check "站点不进项目档案"                      '[ -z "$(git -C "$R" status --porcelain)" ] && [ "$(git -C "$E" status --porcelain)" = " M charter.md" ]'   # ee 的 charter 是上面故意改的
+
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

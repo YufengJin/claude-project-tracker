@@ -17,7 +17,8 @@
 #   pt.sh conditions <slug>                    条件与状态：charter「完成标准」的 G 行，状态从点名它的判定里算
 #   pt.sh journal-archive <slug>               journal.md 超过 100 KB 时把上月之前的整月条目原样搬到 archive/journal-YYYY-MM.md 并提交
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
-#   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
+#   pt.sh site [--out DIR]                     给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/（pt monitor 顺带生成）
+#   pt.sh serve [run|install|status|uninstall] 只读发布 research.html、各 tree.html 与 site/ 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
 #   pt.sh rm <slug> ...                        中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
@@ -25,7 +26,7 @@
 #   pt.sh runs [slug | --wait <run>]           中心机：派活状态 / 等某次派活结束
 #
 # 隔离原则：任何子命令只读写一个 <slug>/ 目录；list 只读各项目档案与 git 历史、算出总览（progress.py），
-# 只写档案根的 INDEX.md 与缓存 .cache/；monitor 只读各研究项目的 tree/ 与 git 历史，只写档案根的 research.html。
+# 只写档案根的 INDEX.md 与缓存 .cache/；monitor 只读各研究项目的 tree/ 与 git 历史，只写档案根的 research.html 与 site/。
 set -u
 
 ROOT="${PROJECT_TRACKER_ROOT:-$HOME/.claude/project}"
@@ -236,10 +237,13 @@ render_index() {
   } > "$tmp" && mv "$tmp" "$ROOT/INDEX.md"
 }
 
-# 全局研究监控页 research.html：有研究项目（tree/）才写；失败只告警
+# 全局研究监控页 research.html（有研究项目才写）与给人看的站点 site/（monitor 顺带写；没有研究项目时单独写）；失败只告警
 render_monitor() {
-  ls -d "$ROOT"/*/tree >/dev/null 2>&1 || return 0
-  python3 "$HERE/monitor.py" "$ROOT" >/dev/null 2>&1 || echo "[warn] research.html 没生成（照常继续）：pt.sh monitor 看原因"
+  if ls -d "$ROOT"/*/tree >/dev/null 2>&1; then
+    python3 "$HERE/monitor.py" "$ROOT" >/dev/null 2>&1 || echo "[warn] research.html 没生成（照常继续）：pt.sh monitor 看原因"
+  else
+    python3 "$HERE/sitegen.py" "$ROOT" >/dev/null 2>&1 || echo "[warn] site/ 没生成（照常继续）：pt.sh site 看原因"
+  fi
   return 0
 }
 
@@ -767,9 +771,10 @@ case "${1:-}" in
   migrate)  cmd_migrate ;;
   rm)       shift; cmd_rm "$@" ;;
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
+  site)     shift; command -v python3 >/dev/null || die "pt site 要 python3"; python3 "$HERE/sitegen.py" "$ROOT" "$@" ;;
   monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)
             is_hub || { off_root_note; die "这台机器不是中心机（没有 $ROOT/FLEET，或档案根不是默认位置）"; }
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,27p' "$0"; exit 1 ;;
+  *)        sed -n '2,28p' "$0"; exit 1 ;;
 esac

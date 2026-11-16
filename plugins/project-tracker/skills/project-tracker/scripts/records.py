@@ -5,13 +5,18 @@
 
 load(d) 返回（字段缺就是空串、空表或 None，不猜）：
 {
-  "slug", "dir", "name": charter 标题, "status": charter Status, "kind": "research"（有 tree/）| "engineering",
+  "slug", "dir", "name": charter 标题, "status": charter Status, "status_short": 进行中|暂停|已完成|已放弃|其他原文,
+  "kind": "research"（有 tree/）| "engineering",
   "state": {"fixed": state 是否合格的固定小节, "summary": 一句话, "focus": [节点 ID], "sections": [(标题, 正文)]},
+  "pending": [state 里标题含待拍板 / 待用户 / 等用户的小节的条目（一行一条，条数与 pt list 的「等用户」同口径）],
+  "activity": {"date": 最近活动 YYYY-MM-DD 或 "", "src": 提交|journal|节点|"", "days": 距今天数或 None}（与 pt list 同一算法）,
+  "terms": {术语: 释义}（charter 里标题以「术语」开头的小节，一行一条「- 词：释义」；没有就空）,
   "conditions": {
       "registered": charter「完成标准」里有没有 G 行,
       "items": [{"id": "G1", "text": 陈述, "line": 线（原文）, "line_set": 线定了没有, "ruler": 尺, "source": 来源,
                  "status": 过|不过|未测|线未定|不再适用, "direction": "min"|"max"|"",
                  "latest": 判定|None, "best": 判定|None, "judgments": [判定，旧→新], "lineno": charter 行号,
+                 "target": 线里的数（线定了且有方向时）或 None, "gap": 最好值离线还差多少（≥0，0 = 已到线；算不出 None）,
                  "bad": 写不成格式时的原因（空串 = 合格）}],
       "legacy": [没登记时「完成标准」原样的行],
       判定 = {"verdict": 过|不过, "value": 数或 None, "eid": 证据编号, "date": YYYY-MM-DD 或 "", "where": "experiments.md:12" 等}},
@@ -344,6 +349,7 @@ def parse_conditions(charter):
                           "line_set": not LINE_UNSET.match(line), "ruler": fields.get("尺", ""),
                           "source": fields.get("来源", ""), "retired": retired, "direction": direction(line),
                           "status": "", "latest": None, "best": None, "judgments": [], "lineno": no,
+                          "target": None, "gap": None,
                           "bad": "；".join(bad)})
     return items, legacy
 
@@ -383,6 +389,12 @@ def settle(items, judgments):
         else:
             passed = [j for j in js if j["verdict"] == "过"]
             c["best"] = passed[-1] if passed else None
+        m = re.search(NUM, c["line"]) if c["line_set"] and c["direction"] else None
+        c["target"] = num(m.group(0)) if m else None
+        b = c["best"]
+        if c["target"] is not None and b and b["value"] is not None:
+            g = b["value"] - c["target"] if c["direction"] == "min" else c["target"] - b["value"]
+            c["gap"] = max(g, 0.0)
         if c["retired"]:
             c["status"] = "不再适用"
         elif not c["line_set"]:
@@ -455,6 +467,35 @@ def state_info(d, has_tree):
             "focus": tree.state_focus(d), "sections": secs, "raw": raw}
 
 
+def pending_items(state_raw):
+    """state 里待拍板类小节的条目；与 progress.pending 同口径：条目都带 [待用户 MM-DD] 就全算，否则只算顶层列表项（没有列表就算顶格行）。"""
+    secs = [b for h, b in progress.sections(tree.strip_comments(state_raw)) if any(k in h for k in progress.PEND_HEADS)]
+    ents = [e for b in secs for e in progress.entries(b)]
+    if ents and not all(progress.PEND_TAG.match(progress.ITEM_MARK.sub("", e, count=1)) for e in ents):
+        ents = [e for e in ents if progress.ITEM_MARK.match(e)] or ents
+    return [clean(progress.ITEM_MARK.sub("", e, count=1)) for e in ents]
+
+
+def activity(d, today):
+    try:
+        r = progress.project_row(d, ref=today)
+        return {"date": r["act"], "src": r["act_src"], "days": r["days"]}
+    except Exception:  # 算不出不拖垮取数
+        return {"date": "", "src": "", "days": None}
+
+
+def terms_of(charter):
+    out = {}
+    for h, body in lint.sections(tree.strip_comments(charter)):
+        if not h[3:].strip().startswith("术语"):
+            continue
+        for ln in body:
+            m = re.match(r"^\s*[-*+]\s+\**([^：:*]{1,30}?)\**\s*[：:]\s*(.+)$", ln)
+            if m:
+                out[clean(m.group(1))] = clean(m.group(2))
+    return out
+
+
 # ---------- 汇总 ----------
 
 def load(d, today=None):
@@ -464,6 +505,7 @@ def load(d, today=None):
     title = next((ln[2:].strip() for ln in charter.split("\n") if ln.startswith("# ")), "")
     research = os.path.isdir(os.path.join(d, "tree"))
     rec = {"slug": os.path.basename(d), "dir": d, "name": title, "status": lint.field(charter, "Status"),
+           "status_short": progress.status_of(charter),
            "kind": "research" if research else "engineering", "state": state_info(d, research),
            "nodes": {}, "rows": {}, "row_order": [], "measurements": {}, "recent": [], "glossary": {}}
     t = tree.Tree(d) if research else None
@@ -511,6 +553,9 @@ def load(d, today=None):
     rec["conditions"] = {"registered": bool(items), "items": items, "legacy": [] if items else legacy,
                          "orphans": orphan}
     rec["adrs"] = adr_list(d)
+    rec["pending"] = pending_items(rec["state"]["raw"])
+    rec["activity"] = activity(d, today)
+    rec["terms"] = terms_of(charter)
     rec["journal"] = [{k: v for k, v in e.items() if k != "text"} for e in entries]
     if t is not None:
         closed = [x for x in rec["nodes"].values() if x["status"] == "closed"]

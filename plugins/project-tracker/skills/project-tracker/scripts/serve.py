@@ -12,6 +12,8 @@
   allow=a@x.com,b@y.com   允许的 Tailscale 登录名（tailscale serve 附加的 Tailscale-User-Login 头）
 
 只服务 /、/research.html、/<slug>/tree.html（slug 是档案根下真实目录、含 tree/、不是符号链接、文件不逃出档案根），
+以及给人看的站点 <档案根>/site/（pt site / pt monitor 生成，目录里要有 .pt-site 标记）：/site/、/site/index.html、
+/site/p/<slug>.html（研究与工程项目都有）、/site/p/<slug>/<Q|H 编号>.html（slug 同样要是档案根下真实的项目目录，含 charter.md）；
 其余 404；只允许 GET / HEAD。请求必须带白名单内的 Tailscale-User-Login 头，否则 403；
 --allow-local 只给本机调试：没有身份头的请求也放行。只用标准库。
 """
@@ -27,6 +29,7 @@ import sys
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 PATH_RE = re.compile(r"^/(?:(research\.html)|([a-z0-9]+(?:-[a-z0-9]+)*)/tree\.html)?$")
+SITE_RE = re.compile(r"^/site/(?:(index\.html)?|p/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.html|/([QH][1-9][0-9]{0,5})\.html))$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 UNIT = "pt-serve.service"
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
@@ -93,10 +96,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _resolve(self):
         """把请求路径映射到档案根里的文件；不合规返回 None（→404）。不做任何 URL 解码。"""
         path = self.path.split("?", 1)[0].split("#", 1)[0]
+        root = os.path.realpath(self.root)
+        sm = SITE_RE.match(path)
+        if sm:
+            return self._resolve_site(root, sm)
         m = PATH_RE.match(path)
         if not m:
             return None
-        root = os.path.realpath(self.root)
         slug = m.group(2)
         if slug is None:
             want = os.path.join(root, "research.html")
@@ -108,6 +114,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         real = os.path.realpath(want)
         if real != want or not os.path.isfile(real):
             return None  # 符号链接（逃逸或不逃逸都不跟）
+        return real
+
+    @staticmethod
+    def _resolve_site(root, m):
+        site = os.path.join(root, "site")
+        if os.path.islink(site) or not os.path.isfile(os.path.join(site, ".pt-site")):
+            return None
+        slug, nid = m.group(2), m.group(3)
+        if slug is None:
+            want = os.path.join(site, "index.html")
+        else:
+            d = os.path.join(root, slug)
+            if os.path.islink(d) or not os.path.isfile(os.path.join(d, "charter.md")):
+                return None  # 只发真实存在的项目的页
+            want = os.path.join(site, "p", f"{slug}.html") if nid is None else os.path.join(site, "p", slug, f"{nid}.html")
+        real = os.path.realpath(want)
+        if real != want or not os.path.isfile(real):
+            return None
         return real
 
     def _serve(self, body):
@@ -244,7 +268,7 @@ def cmd_uninstall(root, conf):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(prog="pt serve", description="只读发布 research.html 与 tree.html（tailnet 内）")
+    ap = argparse.ArgumentParser(prog="pt serve", description="只读发布 research.html、tree.html 与 site/（tailnet 内）")
     ap.add_argument("--root", default=os.environ.get("PROJECT_TRACKER_ROOT") or os.path.expanduser("~/.claude/project"))
     ap.add_argument("cmd", nargs="?", default="run", choices=("run", "install", "status", "uninstall"))
     ap.add_argument("--allow-local", action="store_true", help="本机调试：没有 Tailscale-User-Login 头的请求也放行")

@@ -533,6 +533,10 @@ SV="$T/srv"; mkdir -p "$SV/ra/tree" "$SV/nt" "$SV/ln/tree" "$T/outside/tree"
 echo '<p>RESEARCH</p>' > "$SV/research.html"; echo '<p>TREE-RA</p>' > "$SV/ra/tree.html"
 echo secret > "$SV/ra/state.md"; echo secret > "$SV/ra/journal.md"; echo '<p>NT</p>' > "$SV/nt/tree.html"
 echo '<p>OUTSIDE</p>' > "$T/outside/tree.html"; ln -s "$T/outside" "$SV/evil"; ln -s "$T/outside/tree.html" "$SV/ln/tree.html"
+echo '# ra' > "$SV/ra/charter.md"; echo '# nt' > "$SV/nt/charter.md"; mkdir -p "$SV/site/p/ra" "$SV/site/p/nt" "$SV/site/p/gone"
+touch "$SV/site/.pt-site"; echo '<p>SITE-INDEX</p>' > "$SV/site/index.html"; echo '<p>SITE-RA</p>' > "$SV/site/p/ra.html"
+echo '<p>SITE-NT</p>' > "$SV/site/p/nt.html"; echo '<p>SITE-H1</p>' > "$SV/site/p/ra/H1.html"; echo '<p>GONE</p>' > "$SV/site/p/gone.html"
+echo secret > "$SV/site/p/ra/notes.txt"; ln -s "$T/outside/tree.html" "$SV/site/p/ra/H2.html"; ln -s "$SV/site/p/ra.html" "$SV/site/p/evil.html"
 SERVE="$(dirname "$PT")/serve.py"
 check "没有 .serve.conf 拒绝启动"          '! python3 "$SERVE" --root "$SV" run --port 0 2>"$T/sv.err" && grep -q "serve.conf" "$T/sv.err"'
 printf 'port=18443\nallow=Me@Example.com, other@example.com\n' > "$SV/.serve.conf"
@@ -548,9 +552,14 @@ check "Host 不是本机/ts.net 403（防 DNS rebinding）" '[ "$(code "${ME[@]}
 check "白名单身份 / → research.html"       'curl -s "${ME[@]}" "$U/" | grep -q RESEARCH && [ "$(code "${ME[@]}" "$U/research.html")" = 200 ]'
 check "白名单身份（大小写无关）tree.html 200" 'curl -s -H "Tailscale-User-Login: OTHER@example.com" "$U/ra/tree.html" | grep -q TREE-RA'
 check "带查询串与锚点照常"                 '[ "$(code "${ME[@]}" "$U/ra/tree.html?x=1")" = 200 ]'
-for p in /../ /ra/../research.html /%2e%2e/research.html /ra/%2e%2e/ra/tree.html /ra%2ftree.html /ra/state.md /ra/journal.md /ra/tree/ /nope/tree.html /nt/tree.html /evil/tree.html /ln/tree.html /.serve.conf //etc/passwd /RA/tree.html; do
+check "站点：总览、研究与工程项目页、节点页 200" 'curl -s "${ME[@]}" "$U/site/" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/index.html" | grep -q SITE-INDEX && curl -s "${ME[@]}" "$U/site/p/ra.html" | grep -q SITE-RA && curl -s "${ME[@]}" "$U/site/p/nt.html" | grep -q SITE-NT && curl -s "${ME[@]}" "$U/site/p/ra/H1.html?theme=dark" | grep -q SITE-H1'
+check "站点也要白名单身份"                  '[ "$(code "$U/site/p/ra.html")" = 403 ]'
+for p in /../ /ra/../research.html /%2e%2e/research.html /ra/%2e%2e/ra/tree.html /ra%2ftree.html /ra/state.md /ra/journal.md /ra/tree/ /nope/tree.html /nt/tree.html /evil/tree.html /ln/tree.html /.serve.conf //etc/passwd /RA/tree.html /site /site/.pt-site /site/p/gone.html /site/p/evil.html /site/p/ra/H2.html /site/p/ra/notes.txt /site/p/ra/H9.html /site/p/ra/../ra.html /site/p/ra/%2e%2e/ra.html /site/p/ra/E1.html /site/p/ra.html/; do
   check "拒绝 $p"                          '[ "$(code "${ME[@]}" "$U$p")" = 404 ]'
 done
+rm "$SV/site/.pt-site"
+check "站点目录没有 .pt-site 标记：404"      '[ "$(code "${ME[@]}" "$U/site/")" = 404 ] && [ "$(code "${ME[@]}" "$U/site/p/ra.html")" = 404 ]'
+touch "$SV/site/.pt-site"
 check "POST 405"                           '[ "$(code "${ME[@]}" -X POST "$U/")" = 405 ]'
 check "HEAD 200 无正文"                    '[ "$(curl -s -I "${ME[@]}" "$U/" -o /dev/null -w "%{http_code} %{size_download}")" = "200 0" ]'
 hd=$(curl -s -D - -o /dev/null "${ME[@]}" "$U/"); hd403=$(curl -s -D - -o /dev/null "$U/")

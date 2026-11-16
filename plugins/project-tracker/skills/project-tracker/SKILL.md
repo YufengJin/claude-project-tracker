@@ -60,7 +60,8 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 不合格（缺哪节、多了哪节、超多少）或落后 journal、待拍板超过 7 天、模板占位没填、工程项目 plan 还是模板、Status 不是规范取值、journal 或新格式条目超限、问题节点当前认识超 3 KB 或有「更新」「历史」类追加小节、Host 不是规范主机名、本机 Workdir 不存在、研究树根或节点过大、状态为暂停/已放弃/已完成但树上还有 active 节点、进行中但 14 天没活动、已完成但 plan 还有未勾项、已关节点没有卡、卡缺行或超长、卡里的编号查不到、卡里的数在原文找不到（只作提示）、条件行写不成格式。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE |
 | `pt journal-archive <slug>` | journal.md 超过 100 KB 时，把上月之前的整月条目原样搬到 `archive/journal-YYYY-MM.md`（认不出日期的旧条目进 `archive/journal-early.md`），核对条数与字节数守恒后提交，顶部留一行说明 |
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
-| `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html` 与各 `tree.html` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
+| `pt site [--out DIR]` | 给人看的只读站点 `<档案根>/site/`：全部项目 → 项目页（现在、等你拍板、条件表、最近结论、按问题分组的卡；工程项目放最近结果与决定）→ 节点页（卡、证据、判据、原文、释义）。只经 records 取数，不调模型；`pt monitor` 顺带生成 |
+| `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html`、各 `tree.html` 与 `site/` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
 | `pt rm <slug> …` | 中心机删项目：先打包到 `<档案根>/.backup/deleted-<slug>-<时间>.tgz`，slug 记进墓碑 `.deleted`，同步不再从节点导入（节点副本不动）；ACTIVE 或有会话绑定的拒删。用户明说要删才用，`pt new` 同名会清掉墓碑 |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |

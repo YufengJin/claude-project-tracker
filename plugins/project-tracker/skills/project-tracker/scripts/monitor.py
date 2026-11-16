@@ -8,6 +8,8 @@
 
 最近动态取自各项目 git 历史：比较每个提交里 tree/<ID>.md 前后的 frontmatter，
 得出新增、status 变化、verdict 变化、换父、删除。只用标准库。
+写完 research.html（不写页面的 --events 除外）顺带重新生成给人看的站点 <档案根>/site/（sitegen.py）；
+站点失败只告警，不影响 research.html。
 """
 import html
 import os
@@ -433,7 +435,7 @@ def render(projects, events, sync, days, base, now, overview=()):
     if sync and sync[0]:
         sy = f'<span class=m>上次同步 {mdhm(sync[0]) if now - sync[0] > 86400 else hm(sync[0])}（{sync[1]}/{sync[2]} 台在线）</span>'
     head = (f'<header><h1>研究监控</h1><span class=m>生成于 {hm(now)}<span id=age></span></span>{sy}'
-            f'<span class=m>{len(projects)} 个研究项目</span>'
+            f'<span class=m>{len(projects)} 个研究项目</span><a class=m href="{base}site/index.html">项目页（新）</a>'
             f'<label><input type=checkbox id=ar checked> 每 60 秒刷新</label></header>')
     cards = "".join(card(p, base) for p in projects) or "<p class=empty>档案根下还没有研究项目（有 tree/ 的项目）。</p>"
     n = len(events)
@@ -504,6 +506,14 @@ def main(argv):
     write_atomic(path, render(projects, events, sync_state(root), days, base, time.time(), overview))
     print(f"research.html：{len(projects)} 个研究项目，最近 {days} 天 {len(events)} 条动态，"
           f"{time.time() - t0:.2f}s → {path}")
+    try:
+        import sitegen  # noqa: E402
+        st = sitegen.build(root)
+        print(f"site：{st['projects']} 个项目，{st['pages']} 页，{st['seconds']:.2f}s → {st['out']}")
+        for slug, why in st["failed"].items():
+            print(f"[warn] site {slug}：{why}", file=sys.stderr)
+    except Exception as e:  # 站点是附带的：失败只告警
+        print(f"[warn] 站点没生成（research.html 照常）：{type(e).__name__}: {e}", file=sys.stderr)
     return 0
 
 
