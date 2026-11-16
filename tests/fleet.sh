@@ -12,7 +12,7 @@ export PT_QUIET=0 PT_IDLE=100000 PT_WAIT_INTERVAL=1
 export PT_TMUX="tmux -L pttest$$-\$PT_HOSTNAME"
 cleanup() { for h in a b c; do tmux -L "pttest$$-host-$h" kill-server 2>/dev/null; done; rm -rf "$T"; }
 trap cleanup EXIT
-unset CLAUDE_PROJECT_DIR
+unset CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID
 mkdir -p "$T/hosts/a/work" "$T/hosts/b/work" "$T/hosts/c" "$PROJECT_TRACKER_ROOT" "$T/hub/work"
 printf 'a   # 服务器\nb\nc   # 常离线\n' > "$PROJECT_TRACKER_ROOT/FLEET"
 touch "$T/hosts/c/.offline"
@@ -195,6 +195,33 @@ check "节点离线不派"                     'grep -q "同步 a 失败" <<<"$o
 out=$(hpt brief pa 2>&1)
 check "节点离线仍可 brief（用缓存）"     'grep -q "项目简报: pa" <<<"$out" && grep -q "a 上次不可达" <<<"$out"'
 rm -f "$T/hosts/a/.offline"
+
+echo "# 删除：备份 + 墓碑，同步不再导入"
+npt b new gone "B 上要删的项目" >/dev/null
+hpt sync -q b >/dev/null
+check "先导入到中心"                     '[ -f "$H/gone/charter.md" ]'
+out=$(npt b rm gone 2>&1)
+check "节点上不许 rm"                    'grep -q "只在中心机" <<<"$out" && [ -f "$NB/gone/charter.md" ]'
+echo gone > "$H/ACTIVE"
+out=$(hpt rm gone 2>&1); rc=$?
+check "ACTIVE 的不删"                    '[ $rc -ne 0 ] && grep -q "gone: 是 ACTIVE" <<<"$out" && [ -d "$H/gone" ]'
+echo pa > "$H/ACTIVE"; mkdir -p "$H/.sessions"; echo gone > "$H/.sessions/sess-x"
+out=$(hpt rm gone 2>&1); rc=$?
+check "有会话绑定的不删"                 '[ $rc -ne 0 ] && grep -q "会话 sess-x 绑定着它" <<<"$out" && [ -d "$H/gone" ]'
+rm -f "$H/.sessions/sess-x"
+out=$(hpt rm gone nope 2>&1)
+bk=$(ls "$H/.backup"/deleted-gone-*.tgz 2>/dev/null | head -n1)
+check "rm 删目录、记墓碑、不存在的报跳过"  '[ ! -d "$H/gone" ] && grep -qx gone "$H/.deleted" && grep -q "gone: 已删除，备份" <<<"$out" && grep -q "nope: 不存在" <<<"$out"'
+check "备份可解包、档案 git 完整"          '[ -n "$bk" ] && mkdir "$T/unpack" && tar xzf "$bk" -C "$T/unpack" && [ -f "$T/unpack/gone/charter.md" ] && git -C "$T/unpack/gone" log -1 --format=%s | grep -q "new @host-b"'
+check "INDEX 不再列出"                   '! grep -q "^| gone |" "$H/INDEX.md"'
+out=$(hpt sync b)
+check "同步不再导入，说明一行"             '[ ! -d "$H/gone" ] && grep -q "gone: 已删除（墓碑" <<<"$out"'
+out=$(hpt sync -q b)
+check "-q 不出声"                         '[ ! -d "$H/gone" ] && ! grep -q gone <<<"$out"'
+check "节点副本不动"                       '[ -f "$NB/gone/charter.md" ]'
+hpt new gone "中心重新立的同名项目" >/dev/null
+check "new 同名清掉墓碑"                   '! grep -qx gone "$H/.deleted" && [ -f "$H/gone/charter.md" ]'
+echo pa > "$H/ACTIVE"; hpt rm gone >/dev/null; rm -rf "$NB/gone"
 
 echo "# 研究监控：sync 后中心生成 research.html"
 check "还没有研究项目 → 不生成"            '[ ! -f "$H/research.html" ]'

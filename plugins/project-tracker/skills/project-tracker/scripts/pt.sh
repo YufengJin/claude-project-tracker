@@ -13,6 +13,7 @@
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
+#   pt.sh rm <slug> ...                        中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
 #   pt.sh dispatch <slug> "<任务>" [--wait]    中心机：派项目 Host 上的 Claude 去干
 #   pt.sh runs [slug | --wait <run>]           中心机：派活状态 / 等某次派活结束
@@ -497,6 +498,7 @@ cmd_new() {
       "$TPL/$f.md" > "$DIR/$f.md" || { rm -rf "$DIR"; die "从模板生成 $f.md 失败（名称或 workdir 里有 sed 处理不了的字符？）"; }
   done
   commit_all "$DIR" "new @$THIS_HOST: $NAME" || die "git 提交失败: $DIR"
+  [ -f "$ROOT/.deleted" ] && sed -i "/^$SLUG\$/d" "$ROOT/.deleted"
   render_index
   printf '%s\n' "$SLUG" > "$ROOT/ACTIVE"
   bind_session "$SLUG"
@@ -570,6 +572,34 @@ cmd_index() {
   echo "[project-tracker] 已提交: $SLUG | $(field "$SLUG" Status) | $TODAY | $SUMMARY"
 }
 
+# rm（只在中心机）：整个目录打包到 .backup/，包里的条目数对得上才删；slug 记进墓碑 .deleted（同步时不再从节点导入）。
+# 节点上的副本不动。ACTIVE、有会话绑定、有派活在跑的不删
+cmd_rm() {
+  [ $# -gt 0 ] || die "用法: pt.sh rm <slug> ..."
+  is_hub || die "pt rm 只在中心机（有 $ROOT/FLEET 的机器）上用"
+  local s bk b active rc=0
+  active="$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
+  mkdir -p "$ROOT/.backup"
+  for s in "$@"; do
+    if ! [[ "$s" =~ $SLUG_RE ]] || [ ! -d "$ROOT/$s" ]; then echo "  $s: 不存在，跳过"; rc=1; continue; fi
+    if [ "$s" = "$active" ]; then echo "  $s: 是 ACTIVE（最近一次 brief 的项目），不删"; rc=1; continue; fi
+    b="$(grep -lxF "$s" "$SESS_DIR"/* 2>/dev/null | head -n1)"
+    if [ -n "$b" ]; then echo "  $s: 会话 $(basename "$b") 绑定着它（$(date -r "$b" +%F)），不删；那个会话已结束就先删 $b"; rc=1; continue; fi
+    if [ -f "$ROOT/.fleet/active/$s" ]; then echo "  $s: 派活 $(cat "$ROOT/.fleet/active/$s") 正在改它，不删"; rc=1; continue; fi
+    bk="$ROOT/.backup/deleted-$s-$(date +%Y%m%d-%H%M%S).tgz"
+    if tar czf "$bk" -C "$ROOT" "$s" && [ "$(tar tzf "$bk" | wc -l)" = "$(find "$ROOT/$s" | wc -l)" ]; then
+      grep -qxF "$s" "$ROOT/.deleted" 2>/dev/null || printf '%s\n' "$s" >> "$ROOT/.deleted"
+      rm -rf "${ROOT:?}/$s"; rm -f "$ROOT/.fleet/forked/$s"
+      echo "  $s: 已删除，备份 $bk"
+    else
+      rm -f "$bk"; echo "  $s: 备份没能核对，未删"; rc=1
+    fi
+  done
+  render_index
+  render_monitor
+  return $rc
+}
+
 cmd_migrate() {
   [ -d "$ROOT" ] || die "没有 $ROOT"
   mkdir -p "$ROOT/.backup"
@@ -617,6 +647,7 @@ case "${1:-}" in
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   migrate)  cmd_migrate ;;
+  rm)       shift; cmd_rm "$@" ;;
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
   monitor)  shift; command -v python3 >/dev/null || die "pt monitor 要 python3"; python3 "$HERE/monitor.py" "$ROOT" "$@" ;;
   sync|dispatch|runs)

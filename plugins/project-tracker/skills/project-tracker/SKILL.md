@@ -55,6 +55,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html` 与各 `tree.html` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
+| `pt rm <slug> …` | 中心机删项目：先打包到 `<档案根>/.backup/deleted-<slug>-<时间>.tgz`，slug 记进墓碑 `.deleted`，同步不再从节点导入（节点副本不动）；ACTIVE 或有会话绑定的拒删。用户明说要删才用，`pt new` 同名会清掉墓碑 |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |
 
 SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机项目就自动注入简报；命中多个只列 slug 等用户点名；命中零个静默。

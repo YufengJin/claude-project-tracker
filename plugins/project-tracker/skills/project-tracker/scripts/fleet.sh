@@ -33,6 +33,7 @@ fleet_host_status() {
 # 同步一个项目。参数来自探测：别名 slug 节点HEAD 节点未提交 节点空闲秒数 是否有派活在跑
 sync_project() {
   local a=$1 s=$2 rh=$3 dirty=$4 age=$5 running=$6 L="$ROOT/$2" U="$1:$RROOT/$2" lh
+  if [ ! -d "$L" ] && grep -qxF "$s" "$ROOT/.deleted" 2>/dev/null; then echo "  $s: 已删除（墓碑 .deleted），不再从 $a 导入"; return; fi
   if [ "$rh" = none ]; then echo "  $s: $a 上还没有提交（正在写；空闲后会代为提交）"; return; fi
   if [ ! -d "$L" ]; then
     if gssh clone -q -o "$a" "$U" "$L" 2>/dev/null; then
@@ -116,8 +117,8 @@ fleet_sync_host() {
   done
 }
 
-# 输出过滤：-q 只留有变化或有问题的行
-_fleet_filter() { if [ "$1" = 1 ]; then grep -v ': 在线（' || true; else cat; fi; }
+# 输出过滤：-q 只留有变化或有问题的行（墓碑跳过的也不报）
+_fleet_filter() { if [ "$1" = 1 ]; then grep -v -e ': 在线（' -e ': 已删除（墓碑' || true; else cat; fi; }
 
 fleet_sync_one() {   # fleet_sync_one <别名> <slug> [-q]
   mkdir -p "$FDIR"
