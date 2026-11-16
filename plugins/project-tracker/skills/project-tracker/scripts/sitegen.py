@@ -40,6 +40,7 @@ CELL_MAX = 3000
 ROWS_MAX = 300
 RAW_MAX = 200_000
 PAGE_MAX = 1_000_000
+CONCL_RECENT = 20     # 项目页超长时，只有最近这么多个没卡的实验给结论首句
 TEXT_BUDGET = 22_500  # 项目页的文字量（约 15 屏 × 1500 字）；超了就把已答问题下的实验收成一行一个
 
 SHOWN_CLS = {"成立": "ok", "不成立": "bad", "没定论": "mid", "未跑": "grey", "被取代": "grey", "放弃": "grey",
@@ -322,6 +323,9 @@ h3{font-size:15px;margin:0 0 4px}h4{font-size:14px;margin:12px 0 4px}
 .grp{padding:10px 12px}.grp>.card{margin:8px 0 0;border-style:dashed}
 .ch{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--mut)}
 .ct{display:block;font-weight:600;margin:2px 0 4px;color:var(--fg)}
+.ct a{color:var(--fg)}
+.nid{font-size:11px;color:var(--mut);font-weight:400;white-space:nowrap;font-family:ui-monospace,monospace}
+.t2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ex{display:block;font-size:13.5px;color:var(--mut)}
 dl.f{display:grid;grid-template-columns:3.6em 1fr;gap:2px 8px;margin:4px 0 0}dl.f dt{color:var(--mut);font-size:13px;padding-top:1px}
 dl.f dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .b{display:inline-block;border-radius:999px;padding:0 8px;font-size:12px;line-height:20px;white-space:nowrap}
@@ -520,7 +524,7 @@ def h_card(n, R):
     i = n["id"]
     return (f'<article class="card" data-s="{FILTER.get(n["status"], "")}"><div class="ch">{badge(n["shown"])}'
             f'<span>{esc(mmdd(n["date"]))}</span>{flags(n)}</div>'
-            f'<a class="ct" href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(n["title"], 60)}</a>'
+            f'<span class="ct"><a href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(n["title"], 60)}</a>{nid(i)}</span>'
             f'{card_rows(n, R, i)}</article>')
 
 
@@ -534,10 +538,23 @@ def q_summary(q, R):
     return (f'<p class="muted">结果（原文摘取）：{inline(cut(res, 110), R, q["id"])}</p>')
 
 
-def h_line(n, R):
+def nid(i):
+    """链接文字后的小字编号：人能对上号，也能按编号直接开页。只放在卡的标题行与列表行。"""
+    return f' <small class="nid">{esc(i)}</small>'
+
+
+def h_line(n, R, concl=True):
+    """一行一个的实验。带卡的照旧（标题截短）；没卡的给完整标题（最多两行）、判定，concl 时再给程序摘的结论首句。"""
     i = n["id"]
-    return (f'<li data-s="{FILTER.get(n["status"], "")}">{badge(n["shown"])} <a href="{R.node_base}{i}.html" title="{esc(i)}">'
-            f'{R.plain(n["title"], 46)}</a> <span class="muted">{esc(mmdd(n["date"]))}</span></li>')
+    li = f'<li data-s="{FILTER.get(n["status"], "")}">'
+    if n["card_src"] == "card":
+        return (f'{li}{badge(n["shown"])} <a href="{R.node_base}{i}.html" title="{esc(i)}">'
+                f'{R.plain(n["title"], 46)}</a>{nid(i)} <span class="muted">{esc(mmdd(n["date"]))}</span></li>')
+    head = (f'<span class="t2">{badge(n["shown"])} <a href="{R.node_base}{i}.html" title="{esc(i)}">'
+            f'{R.plain(n["title"], 10 ** 4)}</a></span>')  # 标题过长最多两行；编号与日期放下一行开头，不被截掉
+    c = n["card"].get("结论", "") if n["status"] == "closed" and concl else ""
+    tail = f' · {inline(cut(c, 120), R, i)} {badge("原文摘取", "grey")}' if c else ""
+    return f'{li}{head}<span class="ex">{nid(i).strip()} {esc(mmdd(n["date"]))}{tail}</span></li>'
 
 
 def h_order(ns):
@@ -551,7 +568,8 @@ def q_rank(n):
     return {"active": 0, "open": 1, "parked": 2}.get(n["status"], 3)
 
 
-def groups_html(rec, R, expand_answered=True):
+def groups_html(rec, R, expand_answered=True, concl=None):
+    """concl：哪些没卡的节点给结论首句（None = 全给）。"""
     nodes = rec["nodes"]
     qs = [n for n in nodes.values() if n["kind"] == "Q"]
     order = {}
@@ -579,7 +597,7 @@ def groups_html(rec, R, expand_answered=True):
             cnt[n["shown"]] = cnt.get(n["shown"], 0) + 1
         s = [f'<section class="grp" id="g-{esc(i)}" data-s="{FILTER.get(q["status"], "")}">'
              f'<div class="ch">{badge(q["shown"])}{flags(q)}<span>{esc(date_note(q))}</span></div>'
-             f'<h3><a href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(q["title"], 90)}</a></h3>']
+             f'<h3><a href="{R.node_base}{i}.html" title="{esc(i)}">{R.plain(q["title"], 90)}</a>{nid(i)}</h3>']
         if par:
             s.append(f'<div class="muted">属于：<a href="#g-{esc(par["id"])}">{R.plain(par["title"], 30)}</a></div>')
         s.append(q_summary(q, R))
@@ -591,7 +609,7 @@ def groups_html(rec, R, expand_answered=True):
             s.extend(h_card(n, R) for n in full)
             rest = [n for n in hs if n not in full]
             if rest:
-                s.append('<ul class="ls">' + "".join(h_line(n, R) for n in rest) + "</ul>")
+                s.append('<ul class="ls">' + "".join(h_line(n, R, concl is None or n["id"] in concl) for n in rest) + "</ul>")
         if subq:
             s.append('<div class="muted" style="margin-top:6px">子问题：' + "、".join(
                 f'<a href="#g-{esc(x["id"])}" title="{esc(x["id"])}">{R.plain(x["title"], 24)}</a>（{esc(x["shown"])}）'
@@ -607,7 +625,8 @@ def groups_html(rec, R, expand_answered=True):
         full = [n for n in loose if n["card_src"] == "card"][:CARDS_PER_Q]
         rest = [n for n in loose if n not in full]
         out.append('<section class="grp" data-s=""><h3>没挂在问题下的实验</h3>' + "".join(h_card(n, R) for n in full) +
-                   ('<ul class="ls">' + "".join(h_line(n, R) for n in rest) + "</ul>" if rest else "") + "</section>")
+                   ('<ul class="ls">' + "".join(h_line(n, R, concl is None or n["id"] in concl) for n in rest) + "</ul>"
+                    if rest else "") + "</section>")
     return "".join(out)
 
 
@@ -637,10 +656,10 @@ def project_page(rec, today, tree_href, note):
     if research:
         rc = [x for x in rec["recent"] if x["kind"] in ("H", "J")][:5]
         s.append("<h2>最近有结论的实验</h2>")
-        if rc:  # 标题加卡的结论行；没卡的只给标题（摘出来的首句常常不成其为结论）
+        if rc:  # 标题加卡的结论行；没卡的只给标题。节点编号在下面分组里给过，这里不重复（一页一个编号只出现一次）
             s.append('<ul class="ls">' + "".join(
                 f'<li>{badge(x["shown"])} <span class="muted">{esc(mmdd(x["date"]))}</span> '
-                f'<a href="{R.node_base}{x["id"]}.html" title="{esc(x["id"])}">{R.plain(x["title"], 36)}</a>'
+                f'<a href="{R.node_base}{x["id"]}.html" title="{esc(x["id"])}">{R.plain(x["title"], 36)}</a>{nid(x["id"]) if x["kind"] == "J" else ""}'
                 f'{"：" + inline(cut(x["line"], 90), R, x["id"]) if x["line"] and x["card_src"] == "card" else ""}</li>'
                 for x in rc) + "</ul>")
         else:
@@ -650,9 +669,14 @@ def project_page(rec, today, tree_href, note):
                  '<button data-f="待做">待做</button></div>')
         head = textlen("\n".join(s))
         g = groups_html(rec, R)
-        if head + textlen(g) > TEXT_BUDGET:  # 太长：已答的问题下实验一行一个（问题卡就是子树的摘要）
-            g = ('<p class="muted">实验多，已答的问题下的实验一行一个；问题卡上的「结果」是那一支的摘要。</p>'
-                 + groups_html(rec, R, expand_answered=False))
+        if head + textlen(g) > TEXT_BUDGET:  # 太长：没卡的节点只有最近 CONCL_RECENT 个给结论首句，更早的只给标题
+            bare = [n for n in rec["nodes"].values() if n["kind"] == "H" and n["card_src"] != "card" and n["status"] == "closed"]
+            bare.sort(key=lambda n: (n["date"] or "", tree.id_key(n["id"])), reverse=True)
+            keep = {n["id"] for n in bare[:CONCL_RECENT]}
+            g = groups_html(rec, R, concl=keep)
+            if head + textlen(g) > TEXT_BUDGET:  # 还太长：已答的问题下实验一行一个（问题卡就是子树的摘要）
+                g = ('<p class="muted">实验多，已答的问题下的实验一行一个；问题卡上的「结果」是那一支的摘要。</p>'
+                     + groups_html(rec, R, expand_answered=False, concl=keep))
         s.append(f'<div id="groups">{g}</div>')
         loose = [k for k in rec["row_order"] if not any(x in rec["nodes"] for x in rec["rows"][k]["nodes"])]
         if loose:
@@ -684,7 +708,7 @@ def results_html(rec, R):
     lines = []
     for e in rest[:RESULT_LINES]:
         title = e["headline"] if e["category"] else e["title"]
-        body = f'<a href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(title, 60))}</a>' \
+        body = f'<a href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(title, 60))}</a>{nid(e["id"])}' \
             if e["id"] in pages else inline(cut(title, 60))
         first = (e["card"] or {}).get("结论") or e["first"]
         more = f'：{inline(cut(first, 90), R)}' if first and first != title else ""
@@ -700,7 +724,8 @@ def results_html(rec, R):
 def j_card(e, R):
     return (f'<article class="card"><div class="ch">{badge("结果", "done")}<span>{esc(mmdd(e["date"]))}</span>'
             f'{badge("补记", "grey") if e["thread"] == "补记" else ""}</div>'
-            f'<a class="ct" href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(e["headline"], 60))}</a>'
+            f'<span class="ct"><a href="{R.node_base}{e["id"]}.html" title="{esc(e["id"])}">{inline(cut(e["headline"], 60))}</a>'
+            f'{nid(e["id"])}</span>'
             f'{j_rows(e, R)}</article>')
 
 
@@ -884,7 +909,8 @@ def overview(recs, fails, today, research_href, note):
     if rc:
         s.append("<h2>最近有结论的实验</h2><ul class=\"ls\">" + "".join(
             f'<li>{badge(x["shown"])} <span class="muted">{esc(mmdd(d))} · {esc(cut(r["name"] or r["slug"], 14))}</span> '
-            f'<a href="p/{r["slug"]}/{x["id"]}.html" title="{esc(x["id"])}">{Ref(r, "index", "human").plain(x["title"], 40)}</a></li>'
+            f'<a href="p/{r["slug"]}/{x["id"]}.html" title="{esc(x["id"])}">{Ref(r, "index", "human").plain(x["title"], 40)}</a>'
+            f'{nid(x["id"])}</li>'
             for d, r, x in rc[:10]) + "</ul>")
     groups = (("进行中", ("进行中",)), ("暂停", ("暂停",)), ("结束了", ("已完成", "已放弃")))
     used = set()
