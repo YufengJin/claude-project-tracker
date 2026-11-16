@@ -13,9 +13,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tree  # noqa: E402  研究树节点的解析与 pt tree 同一套
+import journal as jmod  # noqa: E402  journal 条目切分与 journal-archive 同一套
 
 CHECKS = ("state-stale", "pending-stale", "template", "journal-size", "state-size",
-          "host", "workdir-missing", "no-focus", "tree-root-size", "tree-node-size")
+          "host", "workdir-missing", "no-focus", "tree-root-size", "tree-node-size",
+          "state-format", "tree-know", "journal-entry", "status", "plan-template")
 STATE_LAG_DAYS = 2          # state 的 Updated 比 journal 最新条目早这么多天及以上
 PENDING_DAYS = 7            # 待拍板 / 等用户 里的日期超过这么多天
 JOURNAL_MAX = 100 * 1024
@@ -27,7 +29,17 @@ NEXT_HEAD = re.compile(r"^##\s.*下一步")
 FULL_DATE = re.compile(r"(20\d\d)-(\d{1,2})-(\d{1,2})")
 SHORT_DATE = re.compile(r"(?<![\d./-])(0[1-9]|1[0-2])-([0-2]\d|3[01])(?![\d])")
 PLACEHOLDER = re.compile(r"<[^<>\n{}!]{2,}>")
-TEMPLATED = ("charter", "plan", "state", "decisions")
+TEMPLATED = ("charter", "state", "decisions")
+# state 的固定小节（按此顺序）；合格 = 有「焦点」与「下一步」、没有名单外的二级小节、全文不超过 STATE_FIXED_MAX
+STATE_SECTIONS = ("一句话概括", "焦点", "下一步", "待拍板", "线程", "入口与产物", "快速启动", "别再试")
+STATE_REQUIRED = ("焦点", "下一步")
+STATE_FIXED_MAX = 3 * 1024
+KNOW_MAX = 3 * 1024         # 任一问题节点的「当前认识」
+JOURNAL_ENTRY_MAX = 3 * 1024  # 新格式 journal 条目单条
+STATUS_VALUES = ("进行中", "暂停", "已完成", "已放弃")
+APPEND_HEAD = re.compile(r"更新|历史|已过时")
+# 0.6.10 及以前的 plan 模板占位：旧项目的 plan 没填也认得出
+LEGACY_PLAN_PLACEHOLDERS = ("<一段：整体思路和顺序为什么这样排>", "<当前步骤>", "<可能翻车的地方和预案>")
 
 
 def read(path):
@@ -87,6 +99,41 @@ def sections(text):
     return secs
 
 
+def state_name(head):
+    """「## 焦点」「## 待拍板（2 项）」→ 固定小节名；名单外的返回 None。"""
+    h = head[3:].strip()
+    for n in STATE_SECTIONS:
+        if h == n or (h.startswith(n) and h[len(n)] in tree.SEC_SEP):
+            return n
+    return None
+
+
+def state_check(raw):
+    """state.md 按固定小节的体检：(缺的必需节, 名单外的节, 超出 3 KB 的字节数)。三者都空才合格。"""
+    heads = [h for h, _ in sections(tree.strip_comments(raw))]
+    names = [state_name(h) for h in heads]
+    missing = [n for n in STATE_REQUIRED if n not in names]
+    extra = [h[3:].strip() for h, n in zip(heads, names) if n is None]
+    return missing, extra, max(0, len(raw.encode()) - STATE_FIXED_MAX)
+
+
+def state_ok(raw):
+    missing, extra, over = state_check(raw)
+    return not missing and not extra and not over
+
+
+def plan_placeholders(tpl_dir):
+    raw = read(os.path.join(tpl_dir, "plan.md"))
+    cur = [p for p in dict.fromkeys(PLACEHOLDER.findall(raw)) if re.search(r"\w", p)]
+    return cur + list(LEGACY_PLAN_PLACEHOLDERS)
+
+
+def plan_is_template(d, placeholders):
+    """plan.md 还留着模板占位（新旧模板都认）。注释里的不算。"""
+    text = tree.strip_comments(read(os.path.join(d, "plan.md")))
+    return [p for p in placeholders if p in text]
+
+
 def short(s, n=40):
     s = " ".join(s.split())
     return s if len(s) <= n else s[:n] + "…"
@@ -101,6 +148,7 @@ def template_placeholders(tpl_dir):
     for name in TEMPLATED:
         raw = read(os.path.join(tpl_dir, name + ".md"))
         out[name] = [p for p in dict.fromkeys(PLACEHOLDER.findall(raw)) if re.search(r"\w", p)]
+    out["plan"] = plan_placeholders(tpl_dir)
     return out
 
 
@@ -156,7 +204,7 @@ def lint_one(slug, d, ctx):
 
     # 体积
     if os.path.isfile(jpath) and os.path.getsize(jpath) > JOURNAL_MAX:
-        add("journal-size", f"journal.md {kb(os.path.getsize(jpath))}，超过 {kb(JOURNAL_MAX)}")
+        add("journal-size", f"journal.md {kb(os.path.getsize(jpath))}，超过 {kb(JOURNAL_MAX)}（pt journal-archive {slug} 按月原样搬走）")
     nbytes = len(state_raw.encode())
     nlines = state_raw.count("\n") + (0 if state_raw.endswith("\n") or not state_raw else 1)
     if nbytes > ctx["state_max_bytes"] or nlines > ctx["state_max_lines"]:
@@ -181,8 +229,34 @@ def lint_one(slug, d, ctx):
     if not any(FOCUS_HEAD.match(x) for x in heads) and not any(NEXT_HEAD.match(x) for x in heads):
         add("no-focus", "state 里既没有焦点类小节（焦点、焦点节点、研究树、现在在哪），也没有「下一步」")
 
-    # 研究树
+    # state 固定小节
+    if os.path.isfile(os.path.join(d, "state.md")):
+        missing, extra, over = state_check(state_raw)
+        why = ([f"缺 {'、'.join(missing)}"] if missing else []) + \
+              ([f"多了 {short('、'.join(extra), 60)}"] if extra else []) + \
+              ([f"超 {kb(STATE_FIXED_MAX)} 上限 {over} 字节"] if over else [])
+        if why:
+            add("state-format", "state 不合格（固定小节：" + "/".join(STATE_SECTIONS) + "）：" + "；".join(why))
+
+    # journal 新格式条目单条大小
+    for e in jmod.split(jmod.read_raw(jpath))[1]:
+        n = len(e.encode())
+        if jmod.NEW_HEAD.match(e) and n > JOURNAL_ENTRY_MAX:
+            add("journal-entry", f"条目「{short(e.split(chr(10), 1)[0][3:], 50)}」{kb(n)}，超过 {kb(JOURNAL_ENTRY_MAX)}：长内容落产物文件，条目只记路径")
+
+    # Status 规范取值
+    st = field(charter, "Status")
+    if charter and st not in STATUS_VALUES:
+        add("status", f"charter Status「{short(st, 30)}」不是规范取值（{'/'.join(STATUS_VALUES)}），备注写到 state")
+
+    # 工程项目的 plan 还是模板
     tdir = os.path.join(d, "tree")
+    if not os.path.isdir(tdir) and os.path.isfile(os.path.join(d, "plan.md")):
+        left = plan_is_template(d, ctx["placeholders"]["plan"])
+        if left:
+            add("plan-template", f"plan.md 还是模板（{short('、'.join(left), 40)}）：写成清单 - [ ] 步骤 → 验证：命令或判据")
+
+    # 研究树
     names = [f for f in os.listdir(tdir) if tree.NODE_FILE_RE.match(f)] if os.path.isdir(tdir) else []
     for nid in sorted((f[:-3] for f in names), key=tree.id_key):
         path = os.path.join(tdir, nid + ".md")
@@ -195,6 +269,15 @@ def lint_one(slug, d, ctx):
             node = tree.parse_node(path)
         except (OSError, UnicodeDecodeError):
             continue
+        if nid.startswith("Q"):
+            kn = len(tree.section(node, "当前认识").encode())
+            if kn > KNOW_MAX:
+                add("tree-know", f"{nid} 的「当前认识」{kb(kn)}，超过 {kb(KNOW_MAX)}：重写成不超过 15 条的快照")
+            app = [h for h, _ in node["sections"] if not tree.sec_name(h) and APPEND_HEAD.search(h)]
+            app += [ln.lstrip("#").strip() for ln in tree.section(node, "当前认识").split("\n")
+                    if re.match(r"^#{3,}\s", ln) and APPEND_HEAD.search(ln)]
+            if app:
+                add("tree-know", f"{nid} 有 {len(app)} 个追加小节（「{short(app[0], 24)}」等）：当前认识每次重写，旧版交给 git 与 journal")
         if node["parent"]:
             continue
         know = len(tree.section(node, "当前认识").encode()) + len(tree.section(node, "教训").encode())

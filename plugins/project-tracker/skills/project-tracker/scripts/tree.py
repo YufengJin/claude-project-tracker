@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """tree.py — 研究树：读 <档案>/tree/*.md 与 experiments.md，打印上下文并重写 <档案>/tree.html。
 
-  tree.py <档案目录>                 活跃根节点「当前认识/约束/教训」（搁置/已关的根只给指引）、进行中节点（带祖先链）、open/parked 标题、一致性告警
+  tree.py <档案目录>                 活跃根节点「当前认识/约束/教训」（搁置/已关的根只给指引）、焦点链上其他问题节点的当前认识、进行中节点（带祖先链）、open/parked 标题、一致性告警
   tree.py <档案目录> --all           再加已关分支索引（ID、verdict、结论首句）
   tree.py <档案目录> --ctx ID        给一个节点干活用的上下文：根的约束/认识/教训、祖先链、兄弟、本节点全文、台账行
   tree.py <档案目录> --ctx ID --blind  只给本节点判别（[[ID]] 隐去）、根约束、考官的指标与判定依据（不给认识与兄弟）
   tree.py <档案目录> --next Q|H      下一个可用 ID
-  --no-html 不写 tree.html；--render 只写 tree.html，打印一行摘要
+  --no-html 不写 tree.html；--render 只写 tree.html，打印一行摘要；--roots-only 不打焦点链（0.6.10 的输出，旧版简报用）
 
 只用标准库。节点格式见 SKILL.md「研究树」。
 """
@@ -505,6 +505,54 @@ def tag(n):
     return f"{s}/{n['verdict']}" if n["verdict"] else s
 
 
+# ---------- 焦点链 ----------
+
+FOCUS_ID_RE = re.compile(r"(?<![A-Za-z0-9])([QH][1-9][0-9]*)(?![0-9])")
+
+
+def state_focus(d):
+    """state.md「## 焦点」里提到的节点 ID，按出现顺序去重。"""
+    try:
+        raw = strip_comments(read_text(os.path.join(d, "state.md")))
+    except (OSError, UnicodeDecodeError):
+        return []
+    out, on, fence = [], False, False
+    for ln in raw.split("\n"):
+        if FENCE_RE.match(ln):
+            fence = not fence
+        if not fence and ln.startswith("## "):
+            h = ln[3:].strip()
+            on = h == "焦点" or (h.startswith("焦点") and h[2] in SEC_SEP)
+            continue
+        if on:
+            out += FOCUS_ID_RE.findall(ln)
+    return list(dict.fromkeys(out))
+
+
+def focus_chain(t):
+    """(焦点 ID, 来源, 链)。焦点取 state「## 焦点」里写到的节点；一个都没有就取进行中的叶节点
+    （active 且没有 active 子节点）。链是根 → 焦点（含焦点）上的节点，多个焦点合并去重。"""
+    ids, src = [i for i in state_focus(t.dir) if i in t.nodes], "state「焦点」"
+    if not ids:
+        ids = [i for i in sorted(t.nodes, key=id_key) if t.nodes[i]["status"] == "active"
+               and not any(t.nodes[k]["status"] == "active" for k in t.children[i])]
+        src = "进行中的叶节点"
+    seq = []
+    for i in ids:
+        for x in t.chain(i) + [i]:
+            if x not in seq:
+                seq.append(x)
+    return ids, src, seq
+
+
+def chain_knowledge(t, active_only=False):
+    """焦点链上问题节点的「当前认识」：(焦点 ID, 来源, [(ID, 文本)])，空的不列。"""
+    ids, src, seq = focus_chain(t)
+    out = [(x, section(t.nodes[x], "当前认识")) for x in seq
+           if x.startswith("Q") and (not active_only or t.nodes[x]["status"] == "active")]
+    return ids, src, [(x, b) for x, b in out if b]
+
+
 # ---------- 文字输出 ----------
 
 def short_chain(ch, keep=6):
@@ -520,7 +568,7 @@ def par_note(t, n):
     return ""
 
 
-def text_default(t, show_all):
+def text_default(t, show_all, roots_only=False):
     o = []
     cnt = {s: 0 for s in STATUSES}
     other = 0
@@ -545,6 +593,14 @@ def text_default(t, show_all):
             b = section(n, s)
             if b:
                 o.append(f"### {s}\n{b}")
+    if not roots_only:
+        shown_roots = {r for r, n in t.nodes.items() if not n["parent"] and n["status"] not in ("parked", "closed")}
+        ids, src, ks = chain_knowledge(t)
+        ks = [(x, b) for x, b in ks if x not in shown_roots]
+        if ks:
+            o.append(f"\n## 焦点链的当前认识（焦点 {', '.join(ids)}，取自{src}）")
+            for x, b in ks:
+                o.append(f"### {x} [{tag(t.nodes[x])}] {t.nodes[x]['title']}\n{b}")
     act = [i for i in sorted(t.nodes, key=id_key) if t.nodes[i]["status"] == "active"]
     o.append("\n## 进行中")
     if not act:
@@ -1332,7 +1388,7 @@ def write_html(t):
 
 def main(argv):
     args = list(argv)
-    flags = {"--all": False, "--blind": False, "--no-html": False, "--render": False}
+    flags = {"--all": False, "--blind": False, "--no-html": False, "--render": False, "--roots-only": False}
     for k in flags:
         if k in args:
             flags[k] = True
@@ -1376,7 +1432,7 @@ def main(argv):
         if not flags["--blind"]:
             print(warn_text(t))
         return 0
-    print(text_default(t, flags["--all"]))
+    print(text_default(t, flags["--all"], flags["--roots-only"]))
     return 0
 
 

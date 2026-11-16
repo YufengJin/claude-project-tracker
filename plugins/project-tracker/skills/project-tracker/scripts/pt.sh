@@ -11,6 +11,7 @@
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh lint [<slug> ... | --all]            档案体检：只读、只报告（<slug>: <检查名>: <一句话>），退出码恒为 0；默认 ACTIVE
+#   pt.sh journal-archive <slug>               journal.md 超过 100 KB 时把上月之前的整月条目原样搬到 archive/journal-YYYY-MM.md 并提交
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
@@ -186,11 +187,20 @@ set_summary() {
   mv "$tmp" "$f"
 }
 
+# state.md 的 Updated: 行写成今天；没有就补在标题行后
+set_updated() {
+  local f="$ROOT/$1/state.md"
+  [ -f "$f" ] || return 0
+  if grep -q '^Updated:' "$f"; then sed -i "0,/^Updated:.*/s//Updated: $TODAY/" "$f"
+  elif head -n1 "$f" | grep -q '^# '; then sed -i "1a Updated: $TODAY" "$f"
+  else sed -i "1i Updated: $TODAY" "$f"; fi
+}
+
 # 最后更新：最后一次提交的日期（迁移提交、autosync 兜底提交不算）；只有这两种提交时取 journal 最后一条的日期
 last_update() {
   local d="$ROOT/$1" u
   u="$(git -C "$d" log -1 --format=%as --invert-grep --grep='^migrate to 0\.4' --grep='^autosync @' 2>/dev/null)"
-  [ -n "$u" ] || u="$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' "$d/journal.md" 2>/dev/null | tail -n1 | cut -c4-)"
+  [ -n "$u" ] || u="$(grep -oE '^## \[?[0-9]{4}-[0-9]{2}-[0-9]{2}' "$d/journal.md" 2>/dev/null | tail -n1 | tr -d '#[ ')"
   [ -n "$u" ] || u="$(date -r "$d/state.md" +%F 2>/dev/null)"
   echo "$u"
 }
@@ -276,6 +286,17 @@ cmd_brief() {
   local -A FULL=() CUR=() PTR=()
   local K="charter state verifier tree journal adr plan" k old t tw="" jh="" START="" TOTAL jb=0 foot capped=""
   local idx; idx="$(section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)")"
+  # state 是固定小节（合格）：新排版；不合格的（或 brief.py 出错）照 0.6.10 原样
+  local body=""
+  if command -v python3 >/dev/null && python3 "$HERE/brief.py" --check "$DIR/state.md" 2>/dev/null && foot="$(brief_foot)" &&
+     body="$(python3 "$HERE/brief.py" --root "$ROOT" --slug "$SLUG" --host "$THIS_HOST" --templates "$TPL" \
+       --state-max-bytes "$STATE_MAX_BYTES" --state-max-lines "$STATE_MAX_LINES" \
+       --budget $((BRIEF_MAX_BYTES - $(nbytes "$head") - $(nbytes "$idx") - $(nbytes "$foot") - 3)))"; then
+    printf '%s\n' "$head" "$idx" "$body" "$foot"
+    t=$(( $(nbytes "$head") + $(nbytes "$idx") + $(nbytes "$body") + $(nbytes "$foot") + 4 ))
+    [ "$t" -le "$BRIEF_MAX_BYTES" ] || printf '[warn] 简报 %s 字节，必留部分已超过 %s 字节上限\n' "$t" "$BRIEF_MAX_BYTES"
+    return 0
+  fi
 
   FULL[charter]="$(section charter.md; cat "$DIR/charter.md" 2>/dev/null || echo "(缺失)")"
   PTR[charter]="$(section charter.md; brief_ptr "${FULL[charter]}" "cat $DIR/charter.md")"
@@ -290,7 +311,7 @@ cmd_brief() {
       tw=$'\n'"[warn] state.md 还有「当前认识」或「别再试」：研究项目这两节应在根节点（tree/ 根的 ## 当前认识 / ## 教训），state 不复写"
     fi
     t="研究树（pt tree $SLUG；节点上下文 --ctx ID，已关分支 --all，全图 tree.html）"
-    FULL[tree]="$(section "$t"; python3 "$HERE/tree.py" "$DIR" --no-html 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)")$tw"
+    FULL[tree]="$(section "$t"; python3 "$HERE/tree.py" "$DIR" --no-html --roots-only 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)")$tw"
     PTR[tree]="$(section "$t"; brief_ptr "${FULL[tree]}" "pt tree $SLUG")$tw"
   elif [ -f "$DIR/experiments.md" ]; then
     FULL[tree]="$(section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md")"
@@ -540,7 +561,7 @@ cmd_new() {
   bind_session "$SLUG"
 
   echo "[project-tracker] 已建档: $DIR  (Host: $HOSTV  Workdir: $WORKDIR)"
-  echo "下一步：把用户的回答填进 charter.md（目标/完成标准/不做/约束/验证），再写 plan.md。"
+  echo "下一步：把用户的回答填进 charter.md（目标/完成标准/不做/约束/验证）；工程项目再写 plan.md（清单），研究项目接着 pt research（不用 plan，没动过的模板 plan 它会删掉）。"
 }
 
 # 研究树档案根下的两个小配置：.ignore 让 ripgrep / Grep 跳过 tree.html，.gitattributes 让 git diff 不展开它。
@@ -570,6 +591,12 @@ cmd_research() {
     sed -e "s|{{NAME}}|$(sed_esc "${name:-$SLUG}")|g" "$TPL/tree-root.md" > "$DIR/tree/Q1.md"; added="$added tree/Q1.md"
   fi
   added="$added$(tree_dotfiles "$DIR")"
+  # 研究项目不要 plan.md（前沿就是计划）：pt new 生成的模板原样没动过就删掉
+  local created; created="$(field "$SLUG" Created)"
+  if [ -f "$DIR/plan.md" ] && [ -n "$created" ] && \
+     [ "$(sed -e "s|{{DATE}}|$created|g" "$TPL/plan.md")" = "$(cat "$DIR/plan.md")" ]; then
+    rm -f "$DIR/plan.md"; added="$added（删了没动过的模板 plan.md）"
+  fi
   [ -n "$added" ] || { echo "[project-tracker] $SLUG 已有 verifier.md、experiments.md 与 tree/"; return 0; }
   commit_all "$DIR" "research @$THIS_HOST: 加$added" || die "git 提交失败: $DIR"
   local st; st="$(grep -m1 'Status:' "$DIR/verifier.md" | sed 's/.*Status:[[:space:]]*//; s/[（(].*//')"
@@ -594,6 +621,7 @@ cmd_index() {
   [ -z "$u" ] || die "$ROOT/$SLUG 有没合完的冲突（文件里还有 <<<<<<< / >>>>>>> 标记），先合并再 checkpoint：$(echo $u)"
   [ -n "$STATUS" ] && sed -i "s/^Status:.*/Status: $STATUS/" "$ROOT/$SLUG/charter.md"
   set_summary "$SLUG" "$SUMMARY" replace
+  set_updated "$SLUG"
   # 研究树：提交前重渲染 tree.html（派生物，随档案提交）；失败只告警
   if [ -d "$ROOT/$SLUG/tree" ]; then
     tree_dotfiles "$ROOT/$SLUG" >/dev/null
@@ -634,6 +662,22 @@ cmd_rm() {
   render_index
   render_monitor
   return $rc
+}
+
+# journal-archive：journal.md 超过 100 KB 时按月原样搬到 archive/，条目一字不改，搬完提交（多机同步照常快进）
+cmd_journal_archive() {
+  local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh journal-archive <slug>"
+  [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
+  command -v python3 >/dev/null || die "pt journal-archive 要 python3"
+  fleet_run_active "$SLUG" && die "派活 $(cat "$ROOT/.fleet/active/$SLUG") 正在改 $SLUG；等它结束再搬"
+  local u; u="$(conflict_files "$ROOT/$SLUG" 2>/dev/null)"
+  [ -z "$u" ] || die "$ROOT/$SLUG 有没合完的冲突，先合并：$(echo $u)"
+  python3 "$HERE/journal.py" archive "$ROOT/$SLUG" || die "journal 归档失败，没有改动"
+  # 只提交 journal 与归档文件，别的未提交改动留给下次 checkpoint
+  local d="$ROOT/$SLUG"; repo_init "$d"
+  g "$d" add -- journal.md archive || die "git add 失败: $d"
+  g "$d" diff --cached --quiet -- journal.md archive && return 0
+  g "$d" commit -q -m "journal-archive @$THIS_HOST: 上月之前的条目按月搬到 archive/" -- journal.md archive || die "git 提交失败: $d"
 }
 
 cmd_migrate() {
@@ -683,6 +727,7 @@ case "${1:-}" in
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   lint)     shift; cmd_lint "$@" ;;
+  journal-archive) shift; cmd_journal_archive "$@" ;;
   migrate)  cmd_migrate ;;
   rm)       shift; cmd_rm "$@" ;;
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
@@ -690,5 +735,5 @@ case "${1:-}" in
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,22p' "$0"; exit 1 ;;
+  *)        sed -n '2,23p' "$0"; exit 1 ;;
 esac

@@ -12,6 +12,8 @@ ok()   { pass=$((pass+1)); echo "  ok   $1"; }
 bad()  { fail=$((fail+1)); echo "  FAIL $1"; }
 check(){ if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 D=$(date +%F)
+# 0.6.10 的 state 模板（自由小节，不合格）：测旧排版的项目用它，简报应与 0.6.10 逐字一样
+legacy_state(){ printf '# 当前状态\nUpdated: %s (session 1)\n\n## 一句话概括\n刚立项，尚未动手。\n\n## 快速启动\n```bash\n# 命令\n```\n\n## 已完成\n- 无\n\n## 进行中\n- 无\n\n## 别再试\n- 无\n\n## 已知问题\n- 无\n\n## 下一步\n1. <具体到能直接动手>\n' "$D" > "$PROJECT_TRACKER_ROOT/$1/state.md"; }
 
 echo "# new"
 out=$(cd "$T/repoA" && bash "$PT" new alpha "项目 A") ; rc=$?
@@ -22,7 +24,7 @@ check "charter Host = 本机"            'grep -q "^Host: host-me$" "$T/root/alp
 check "无 {{ 残留"                     '! grep -rq --exclude-dir=.git "{{" "$T/root/alpha"'
 check "INDEX 生成行（含主机、state 一句话）" 'grep -q "^| alpha | 项目 A | 进行中 | 本机 | $D | 刚立项，尚未动手。 |$" "$T/root/INDEX.md"'
 check "ACTIVE = alpha"                 '[ "$(cat "$T/root/ACTIVE")" = alpha ]'
-check "journal 首条 session 1 @host"   'grep -q "^## $D · session 1 · @host-me$" "$T/root/alpha/journal.md" && grep -q "^Did: *建立项目档案" "$T/root/alpha/journal.md"'
+check "journal 首条是新格式标题"        'grep -qxF "## [$D] 决定 | 立项 | 建立项目档案" "$T/root/alpha/journal.md" && grep -q "^Did: *建立项目档案" "$T/root/alpha/journal.md"'
 check "项目是 git 仓、分支 main、已首提交" '[ "$(git -C "$T/root/alpha" symbolic-ref --short HEAD)" = main ] && [ "$(git -C "$T/root/alpha" rev-list --count HEAD)" = 1 ] && [ -z "$(git -C "$T/root/alpha" status --porcelain)" ]'
 check "允许推到工作树 (updateInstead)" '[ "$(git -C "$T/root/alpha" config receive.denyCurrentBranch)" = updateInstead ]'
 check "重复 slug 拒绝"                 '! bash "$PT" new alpha "x" 2>/dev/null'
@@ -54,7 +56,8 @@ check "Workdir 带注释也能命中"          '[ "$(cd "$T/repoB" && bash "$PT"
 bash "$PT" index annot "收起" 已放弃 >/dev/null
 check "CLAUDE_PROJECT_DIR 优先于 PWD"  '[ "$(cd "$T/other" && CLAUDE_PROJECT_DIR="$T/repoB" bash "$PT" where)" = beta ]'
 
-echo "# brief"
+echo "# brief（旧排版：state 不合格）"
+legacy_state alpha
 printf '\n## 2026-01-02 · session 2\nGoal: x\n\n## 2026-01-03 · session 3\nGoal: y\n\n## 2026-01-04 · session 4\nGoal: z\n' >> "$T/root/alpha/journal.md"
 printf '## ADR-0001: 用 X\nDate: 2026-01-02\nStatus: 采纳\n\n**背景**：secret-body\n' >> "$T/root/alpha/decisions.md"
 out=$(bash "$PT" brief alpha)
@@ -76,14 +79,14 @@ python3 -c "print('- ' + '字' * 9000)" >> "$T/root/wide/state.md"
 check "state 行数没超但太长也告警"      'bash "$PT" brief wide | grep -q "\[warn\] state.md"'
 
 echo "# brief 的 journal 预算"
-bash "$PT" new big "大 journal" "$T/other/big" >/dev/null
+bash "$PT" new big "大 journal" "$T/other/big" >/dev/null; legacy_state big
 { printf '\n## 2026-02-01 · session 2\nGoal: 早先的目标\n'
   python3 -c "
 for i in range(400): print('续 %d：' % i + '证据' * 60)"
   printf 'Next: 倒数第二条的下一步\n\n## 2026-02-02 · session 3\nGoal: 最新的目标\nNext: 最新的下一步\n'; } >> "$T/root/big/journal.md"
 out=$(bash "$PT" brief big)
 check "超预算时简报不超过 8192 字节"     '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
-check "三条的标题都在"                 'grep -q "^## .*session 1" <<<"$out" && grep -q "^## .*session 2" <<<"$out" && grep -q "^## .*session 3" <<<"$out"'
+check "三条的标题都在"                 'grep -qF "## [$D] 决定 | 立项" <<<"$out" && grep -q "^## .*session 2" <<<"$out" && grep -q "^## .*session 3" <<<"$out"'
 check "最新一条完整、上一条留结尾"      'grep -q "^Goal: 最新的目标" <<<"$out" && grep -q "^Next: 最新的下一步" <<<"$out" && grep -q "^Next: 倒数第二条的下一步" <<<"$out" && grep -q "^续 399：" <<<"$out"'
 check "省掉的开头给出行号"             'grep -q "省略 journal.md 第 [0-9]*–[0-9]* 行" <<<"$out" && ! grep -q "^续 0：" <<<"$out" && ! grep -q "早先的目标" <<<"$out"'
 check "journal 原文没被动"             '[ "$(grep -c "^续 " "$T/root/big/journal.md")" = 400 ]'
@@ -91,7 +94,7 @@ check "journal 预算可调小"               '[ "$(PT_BRIEF_JOURNAL_BYTES=1000 
 check "journal 给出原文路径与行数"       'grep -q "原文 $T/root/big/journal.md 共 [0-9]* 行" <<<"$out"'
 
 echo "# brief 的 8 KB 上限"
-bash "$PT" new fat "大 state" "$T/other/fat" >/dev/null
+bash "$PT" new fat "大 state" "$T/other/fat" >/dev/null; legacy_state fat
 python3 - "$T/root/fat/state.md" <<'PYS'
 import sys; p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 s = s.replace("## 进行中\n- 无", "## 进行中\n" + "".join("- 细节 %d：" % i + "过程" * 80 + "\n" for i in range(60)))
@@ -161,7 +164,7 @@ check "list 不含项目正文"              '! grep -q "完成标准\|Goal:" <<
 check "非中心机 sync 拒绝"             '! bash "$PT" sync 2>/dev/null'
 
 echo "# research 与研究树"
-bash "$PT" new rs "研究 R" "$T/other/rs" >/dev/null
+bash "$PT" new rs "研究 R" "$T/other/rs" >/dev/null; legacy_state rs
 out=$(bash "$PT" research rs)
 R="$T/root/rs"
 check "research 建 verifier、experiments、tree/Q1.md" '[ -f "$R/verifier.md" ] && [ -f "$R/experiments.md" ] && [ -f "$R/tree/Q1.md" ] && grep -q "^title: 研究 R$" "$R/tree/Q1.md"'
@@ -270,7 +273,7 @@ check "没有研究树的项目 tree 报错、brief 照旧" '! bash "$PT" tree a
 echo "# 研究树回归（坏输入、注入、冲突）"
 TP="$(dirname "$PT")/tree.py"
 mkdir -p "$T/rbw"
-bash "$PT" new rb "回归 B" "$T/rbw" >/dev/null; bash "$PT" research rb >/dev/null
+bash "$PT" new rb "回归 B" "$T/rbw" >/dev/null; legacy_state rb; bash "$PT" research rb >/dev/null
 B="$T/root/rb"
 nd(){ printf '%b' "$2" > "$B/tree/$1"; }
 fmn(){ nd "$1.md" "---\ntitle: $2\nparent: $3\nstatus: $4\n$5---\n$6\n"; }
@@ -337,22 +340,22 @@ gq merge -q side >/dev/null 2>&1
 check "S5 前提：tree.html 处于冲突"       '[ -n "$(git -C "$B" ls-files -u -- tree.html)" ]'
 out=$(bash "$PT" index rb "合并后 checkpoint" 2>&1); rc=$?
 check "S5 index 重渲染并收下冲突的 tree.html" '[ $rc -eq 0 ] && [ -z "$(git -C "$B" ls-files -u)" ] && [ "$(git -C "$B" rev-list --parents -1 HEAD | wc -w)" = 3 ] && grep -q "主线改的标题" "$B/tree.html" && grep -q "分支改的标题" "$B/tree.html"'
-gq checkout -qb side2; echo "分支加的一行" >> "$B/plan.md"; gq commit -qam s2
-gq checkout -q main; echo "主线加的一行" >> "$B/plan.md"; gq commit -qam m3
+gq checkout -qb side2; echo "分支加的一行" >> "$B/charter.md"; gq commit -qam s2
+gq checkout -q main; echo "主线加的一行" >> "$B/charter.md"; gq commit -qam m3
 gq merge -q side2 >/dev/null 2>&1
 n0=$(git -C "$B" rev-list --count HEAD)
 out=$(bash "$PT" index rb "不该提交" 2>&1); rc=$?
-check "S5 有没合完的冲突：index 拒绝并列出文件" '[ $rc -ne 0 ] && grep -q "没合完的冲突.*plan.md" <<<"$out" && [ -z "$(git -C "$B" status --porcelain state.md)" ] && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
-gq add plan.md
+check "S5 有没合完的冲突：index 拒绝并列出文件" '[ $rc -ne 0 ] && grep -q "没合完的冲突.*charter.md" <<<"$out" && [ -z "$(git -C "$B" status --porcelain state.md)" ] && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
+gq add charter.md
 out=$(bash "$PT" index rb "标记还在" 2>&1); rc=$?
-check "S5 冲突标记被 add 进去了也拒绝"    '[ $rc -ne 0 ] && grep -q "冲突.*plan.md" <<<"$out" && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
-gq reset -q; git -C "$B" show HEAD:plan.md > "$B/plan.md"; gq checkout -qb side3; echo "分支三" >> "$B/plan.md"; gq commit -qam s3
-gq checkout -q main; echo "主线三" >> "$B/plan.md"; gq commit -qam m4; gq merge -q side3 >/dev/null 2>&1
-git -C "$B" show HEAD:plan.md > "$B/plan.md"   # 在工作区里改好（不 git add）
+check "S5 冲突标记被 add 进去了也拒绝"    '[ $rc -ne 0 ] && grep -q "冲突.*charter.md" <<<"$out" && [ "$(git -C "$B" rev-list --count HEAD)" = "$n0" ]'
+gq reset -q; git -C "$B" show HEAD:charter.md > "$B/charter.md"; gq checkout -qb side3; echo "分支三" >> "$B/charter.md"; gq commit -qam s3
+gq checkout -q main; echo "主线三" >> "$B/charter.md"; gq commit -qam m4; gq merge -q side3 >/dev/null 2>&1
+git -C "$B" show HEAD:charter.md > "$B/charter.md"   # 在工作区里改好（不 git add）
 out=$(bash "$PT" index rb "工作区里合好了" 2>&1); rc=$?
 check "S5 工作区里已改好的冲突（无标记）照常提交" '[ $rc -eq 0 ] && [ -z "$(git -C "$B" ls-files -u)" ] && [ "$(git -C "$B" rev-list --parents -1 HEAD | wc -w)" = 3 ]'
 check "S5 tree.py 对含冲突标记的节点告警" 'printf -- "---\ntitle: t\nparent: Q1\nstatus: open\n---\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> side\n" > "$B/tree/H6.md"; tw | grep -q "H6: 含合并冲突标记"'
-rm -f "$B/tree/H6.md"; git -C "$B" show HEAD:plan.md > "$B/plan.md"; echo "合好的一行" >> "$B/plan.md"; gq add -A; gq commit -qm resolved
+rm -f "$B/tree/H6.md"; git -C "$B" show HEAD:charter.md > "$B/charter.md"; echo "合好的一行" >> "$B/charter.md"; gq add -A; gq commit -qm resolved
 check "S5 brief 分叉提示写 tree.html 不用手合" 'grep -q "tree.html 不用手合，pt index 会重新生成" "$(dirname "$PT")/pt.sh"'
 # S6 pt new 名称含 sed 特殊字符
 out=$(bash "$PT" new sedname 'A|B & \1 C/D' "$T/other/x" 2>&1); rc=$?
@@ -629,7 +632,7 @@ lt(){ PROJECT_TRACKER_ROOT="$LR" bash "$PT" lint "$@" 2>&1; }
 OLD=$(date -d "-10 days" +%F); OLDS=$(date -d "-10 days" +%m-%d); NEWS=$(date -d "-2 days" +%m-%d)
 G="$LR/good"
 printf '# 计划\nUpdated: %s\n\n## 步骤\n- [x] 1. 做完了\n' "$D" > "$G/plan.md"
-printf '# 当前状态\nUpdated: %s (session 2)\n\n## 一句话概括\n好。\n\n## 待拍板\n- 选 A 还是 B（%s）\n- 没写日期的一条\n\n## 下一步\n1. 跑测试\n' "$D" "$NEWS" > "$G/state.md"
+printf '# 当前状态\nUpdated: %s (session 2)\n\n## 一句话概括\n好。\n\n## 焦点\n步骤 1\n\n## 下一步\n1. 跑测试\n\n## 待拍板\n- 选 A 还是 B（%s）\n- 没写日期的一条\n' "$D" "$NEWS" > "$G/state.md"
 sed -i 's/<[^>]*>/已填/g' "$G/charter.md"
 printf '# 当前状态\nUpdated: %s (session 3)\n\n## 待拍板（%s）\n- 老问题（%s 提出）\n  续行 %s 补充\n- 新问题 %s\n\n## 已完成\n- x\n' "$OLD" "$OLDS" "$OLDS" "$OLDS" "$NEWS" > "$LR/fresh/state.md"
 printf '\n## %s · session 2 · @host-me\nDid: x\n' "$D" >> "$LR/fresh/journal.md"
@@ -647,7 +650,7 @@ check "格式 <slug>: <检查名>: <一句话>"         '! grep -v "^$" <<<"$out
 check "state 落后 journal"                     'grep -q "^fresh: state-stale: .*落后 10 天" <<<"$out"'
 check "待拍板标题日期过期"                     'grep -q "^fresh: pending-stale: 「待拍板（$OLDS）」标题日期" <<<"$out"'
 check "待拍板条目过期（续行并入，新条目不报）"  '[ "$(grep -c "^fresh: pending-stale: .*里「" <<<"$out")" = 1 ] && grep -q "老问题.*已过 10 天" <<<"$out"'
-check "刚建的项目报模板占位（charter/plan/state）" '[ "$(grep -c "^fresh: template: \(charter\|plan\|state\)\.md" <<<"$out")" = 2 ] && grep -q "^fresh: template: plan.md.*<当前步骤>" <<<"$out" && grep -q "^big: template: state.md.*<具体到能直接动手>" <<<"$out"'
+check "刚建的项目报模板占位（charter/state；plan 单列）" '[ "$(grep -c "^fresh: template: \(charter\|plan\|state\)\.md" <<<"$out")" = 1 ] && grep -q "^fresh: plan-template: plan.md 还是模板（<步骤>" <<<"$out" && grep -q "^big: template: state.md.*<只写 1 条可执行的动作>" <<<"$out"'
 check "decisions 模板注释里的 <决策标题> 不报"  '! grep -q "decisions.md" <<<"$out"'
 check "journal 超 100 KB"                      'grep -q "^big: journal-size: " <<<"$out"'
 check "state 超上限"                           'grep -q "^big: state-size: .*超过 100 行或 24000 字节" <<<"$out"'
@@ -657,9 +660,147 @@ check "本机 Workdir 不存在"                     'grep -q "^gone: workdir-mi
 check "没有焦点也没有下一步"                    'grep -q "^fresh: no-focus: " <<<"$out" && ! grep -q "^big: no-focus" <<<"$out"'
 check "根节点认识加教训超 6 KB"                 'grep -q "^big: tree-root-size: 根 Q1 .*6.8 KB" <<<"$out"'
 check "单节点超 5 KB"                           'grep -q "^big: tree-node-size: 节点 H2 5.9 KB" <<<"$out" && [ "$(grep -c "^big: tree-node-size" <<<"$out")" = 2 ]'
-check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2$"'
+check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2，state-format [0-9]*，tree-know 1，journal-entry 1，status 0，plan-template [0-9]*$"'
 check "单个 slug 只查它、不给计数"              'o=$(lt good fresh); grep -q "^fresh:" <<<"$o" && ! grep -q "^共 " <<<"$o"'
 check "未知 slug 也退出 0"                      'lt nope >/dev/null; [ $? -eq 0 ]'
 check "lint 不改任何文件、不提交"               '[ "$(find "$LR" -type f -not -path "*/.git/*" -exec md5sum {} + | sort | md5sum)" = "$sum0" ] && [ -z "$(for p in "$LR"/*/; do git -C "$p" status --porcelain; done)" ]'
+
+echo "# 快照层：固定小节 state 的新简报"
+export PROJECT_TRACKER_ROOT="$T/snap"
+mkdir -p "$T/sw/e" "$T/sw/r"
+(cd "$T/sw/e" && bash "$PT" new eng "工程项目" >/dev/null)
+check "pt new 的 state 模板就是合格的固定小节" 'python3 "$(dirname "$PT")/brief.py" --check "$T/snap/eng/state.md"'
+check "工程项目保留 plan（清单模板）"   'grep -q "^- \[ \] <步骤> → 验证：<命令或判据>" "$T/snap/eng/plan.md"'
+(cd "$T/sw/r" && bash "$PT" new rsn "研究项目" >/dev/null && bash "$PT" research rsn >/dev/null)
+check "研究项目：pt research 删掉没动过的模板 plan" '[ ! -e "$T/snap/rsn/plan.md" ] && [ -z "$(git -C "$T/snap/rsn" status --porcelain)" ]'
+(cd "$T/sw/e" && bash "$PT" new eng2 "改过 plan" >/dev/null); printf '# 计划\n\n- [ ] 真步骤 → 验证：pytest\n' > "$T/snap/eng2/plan.md"; bash "$PT" research eng2 >/dev/null
+check "改过的 plan 不删"                '[ -f "$T/snap/eng2/plan.md" ]'
+SR="$T/snap/rsn"
+cat > "$SR/state.md" <<'EOF'
+# 当前状态
+Updated: 2026-01-01
+
+## 一句话概括
+研究进行中。
+
+## 焦点
+Q3：子问题在判 H4。
+
+## 下一步
+跑 H4 的 E2。
+
+## 待拍板
+1. [待用户 01-01] 选 A 还是 B
+
+## 线程
+- [进行中] 跑 E2
+
+## 入口与产物
+- 仓库 ~/repo
+
+## 快速启动
+```bash
+make test
+```
+
+## 别再试
+- 别再试 X
+EOF
+nq(){ printf -- '---\ntitle: %s\nparent: %s\nstatus: %s\n%b---\n%b\n' "$2" "$3" "$4" "$5" "$6" > "$SR/tree/$1.md"; }
+nq Q1 "根问题" "" active '' '## 判别\n为什么。\n## 当前认识\n- 根认识-甲\n## 约束\n- 根约束-乙\n## 教训\n- 根教训-丙'
+nq Q3 "子问题" Q1 active '' '## 判别\n子。\n## 当前认识\n- 子认识-丁'
+nq Q6 "旁支问题" Q1 closed 'verdict: supported\n' '## 结论\n答完。\n## 当前认识\n- 旁支认识-戊'
+nq Q7 "搁置子问题" Q3 parked '' '## 当前认识\n- 搁置认识-己'
+nq H4 "假设四" Q3 active '' '## 判别\n预测。'
+nq H5 "假设五" Q3 open '' ''
+{ for i in 1 2 3 4 5 6 7 8 9; do printf '\n## [2026-01-%02d] 结果 | H4 | 第 %d 条\n正文-%d\n' "$i" "$i" "$i"; done
+  printf '\n## [2026-01-10] 运维 | 磁盘 | 清理\n运维正文\n'; } >> "$SR/journal.md"
+for i in 1 2 3 4 5; do printf '\n## ADR-%04d: 决定 %d\nStatus: 采纳\n**背景**：adr-body-%d\n' "$i" "$i" "$i" >> "$SR/decisions.md"; done
+echo "secret-charter-body" >> "$SR/charter.md"; echo "secret-verifier-body" >> "$SR/verifier.md"
+out=$(bash "$PT" brief rsn); printf '%s\n' "$out" > "$T/snap-brief.txt"
+check "合格 state 走新排版、块的顺序对" 'python3 - "$out" <<PY
+import sys; s=sys.argv[1]; ks=["INDEX 行","lint 告警","= state.md","焦点链的当前认识","前沿","journal 最近 8 条标题","最近 3 条 ADR","要找什么去哪"]
+idx=[s.find(k) for k in ks]; sys.exit(0 if all(i>=0 for i in idx) and idx==sorted(idx) else 1)
+PY'
+check "state 全文在"                    'grep -q "^- 别再试 X" <<<"$out" && grep -q "^- \[进行中\] 跑 E2" <<<"$out" && grep -q "^make test" <<<"$out"'
+check "焦点链：根与 Q3 的当前认识，不含已关 / 搁置 / 链外的" 'grep -q "^- 根认识-甲" <<<"$out" && grep -q "^- 子认识-丁" <<<"$out" && ! grep -q "旁支认识-戊\|搁置认识-己\|根约束-乙" <<<"$out"'
+check "前沿只列 active / open 标题"     'grep -q "^- H4 \[active\] 假设四（Q3 下）" <<<"$out" && grep -q "^- H5 \[open\] 假设五" <<<"$out" && ! grep -q "^- Q6 " <<<"$out" && ! grep -q "^- Q7 " <<<"$out"'
+check "journal 只给最近 8 条标题、跳过运维、无正文" '[ "$(grep -c "^## \[2026-01-.*\] 结果 | H4" <<<"$out")" = 8 ] && ! grep -q "第 1 条\|运维 | 磁盘\|正文-9" <<<"$out" && grep -q "^## \[2026-01-09\] 结果 | H4 | 第 9 条" <<<"$out"'
+check "ADR 只给最近 3 条标题"           'grep -q "^## ADR-0005" <<<"$out" && grep -q "^## ADR-0003" <<<"$out" && ! grep -q "^## ADR-0002" <<<"$out" && ! grep -q "adr-body\|ADR-0001: <决策标题>" <<<"$out"'
+check "charter / 考官卡正文只给指针"    '! grep -q "secret-charter-body\|secret-verifier-body" <<<"$out" && grep -q "| 考官（拿什么判对错） | $SR/verifier.md |" <<<"$out" && grep -q "| 数字、读数 | 台账 $SR/experiments.md" <<<"$out" && grep -q "| 现在信什么 |" <<<"$out" && grep -q "| 为何转向 |" <<<"$out" && grep -q "| 某条分支为何关 |" <<<"$out"'
+check "lint 告警块（state 落后 journal）" 'grep -q "^state-stale: " <<<"$out"'
+check "新简报不超过 8192 字节"          '[ "$(wc -c < "$T/snap-brief.txt")" -le 8192 ]'
+check "工程项目：模板 plan 不进简报，lint 报出" 'o=$(bash "$PT" brief eng); grep -q "^plan-template: " <<<"$o" && ! grep -q "| 计划清单 |" <<<"$o" && ! grep -q "^- \[ \] <步骤>" <<<"$o"'
+check "填过的 plan 进指针表"            'bash "$PT" brief eng2 | grep -q "| 计划清单 | $T/snap/eng2/plan.md |"'
+python3 -c "print('## 当前认识\n' + ''.join('- 长认识 %d：' % i + '证据' * 100 + '\n' for i in range(60)))" >> "$SR/tree/Q3.md"
+for i in $(seq 10 70); do printf '\n## [2026-01-%02d] 结果 | H4 | %s\n' "$((i % 28 + 1))" "$(printf '长标题%.0s' $(seq 1 30))" >> "$SR/journal.md"; done
+out=$(bash "$PT" brief rsn); n=$(printf '%s\n' "$out" | wc -c)
+check "当前认识很大时仍不超过 8192 字节，截掉的给去处" '[ "$n" -le 8192 ] && grep -q "^- 长认识 0：" <<<"$out" && grep -q "余下 [0-9]* 行未展开；全文：pt tree rsn" <<<"$out" && grep -q "^- \[进行中\] 跑 E2" <<<"$out" && grep -q "要找什么去哪" <<<"$out"'
+check "不合格（多一节）就退回旧排版"    'printf "\n## 已完成\n- x\n" >> "$SR/state.md"; o=$(bash "$PT" brief rsn); grep -q "===== charter.md" <<<"$o" && ! grep -q "要找什么去哪" <<<"$o"'
+
+echo "# 快照层：pt tree 打焦点链的当前认识"
+sed -i '/^## 已完成$/,$d' "$SR/state.md"
+out=$(bash "$PT" tree rsn)
+check "pt tree 打出焦点链上非根问题节点的当前认识" 'grep -q "^## 焦点链的当前认识（焦点 Q3, H4，取自state「焦点」）" <<<"$out" && grep -q "^### Q3 \[active\] 子问题" <<<"$out" && ! grep -q "旁支认识-戊" <<<"$out"'
+check "--roots-only 与 0.6.10 一样不打"  '! python3 "$(dirname "$PT")/tree.py" "$SR" --no-html --roots-only | grep -q "焦点链"'
+sed -i 's/^Q3：子问题在判 H4。$/还没定。/' "$SR/state.md"
+check "state 焦点没写节点时取进行中的叶节点" 'bash "$PT" tree rsn | grep -q "^## 焦点链的当前认识（焦点 H4，取自进行中的叶节点）"'
+
+echo "# 快照层：pt index 写 Updated"
+bash "$PT" index rsn "研究推进" >/dev/null
+check "index 把 Updated 写成今天"        '[ "$(grep -c "^Updated: $D$" "$SR/state.md")" = 1 ]'
+printf '# 当前状态\n\n## 焦点\nx\n' > "$T/snap/eng/state.md"; bash "$PT" index eng "无 Updated" >/dev/null
+check "没有 Updated 行就补在标题后"      '[ "$(sed -n 2p "$T/snap/eng/state.md")" = "Updated: $D" ]'
+
+echo "# 快照层：lint 新检查"
+LQ="$T/snap/rsn"
+printf '## 当前认识更新（01-02）\n- 追加的\n' >> "$LQ/tree/Q1.md"
+printf '\n## [2026-01-30] 结果 | H4 | 太长\n%s\n' "$(head -c 4000 /dev/zero | tr '\0' 'z')" >> "$LQ/journal.md"
+printf '\n## 2026-01-31 · session 9 · @x\n%s\n' "$(head -c 4000 /dev/zero | tr '\0' 'y')" >> "$LQ/journal.md"
+sed -i 's/^Status:.*/Status: 进行中 (探索期)/' "$LQ/charter.md"
+printf '# s\n\n## 一句话概括\nx\n\n## 已完成\n- y\n' > "$T/snap/eng2/state.md"
+out=$(bash "$PT" lint rsn eng2 eng)
+check "state-format：缺哪节、多了哪节"    'grep -q "^eng2: state-format: .*缺 焦点、下一步；多了 已完成" <<<"$out" && ! grep -q "^rsn: state-format" <<<"$out"'
+check "state-format：超 3 KB 报超了多少"  'grep -q "^rsn: state-format: .*超 3.0 KB 上限 [0-9]* 字节" <<<"$(python3 -c "print(\"- \" + \"字\" * 1200)" >> "$LQ/state.md"; bash "$PT" lint rsn)"'
+check "tree-know：问题节点当前认识超 3 KB" 'grep -q "^rsn: tree-know: Q3 的「当前认识」.*超过 3.0 KB" <<<"$out"'
+check "tree-know：追加小节"               'grep -q "^rsn: tree-know: Q1 有 1 个追加小节（「当前认识更新（01-02）」" <<<"$out"'
+check "journal-entry：只查新格式条目"     'grep -q "^rsn: journal-entry: 条目「\[2026-01-30\] 结果 | H4 | 太长」" <<<"$out" && [ "$(grep -c "^rsn: journal-entry" <<<"$out")" = 1 ]'
+check "status：不在规范取值"              'grep -q "^rsn: status: charter Status「进行中 (探索期)」不是规范取值" <<<"$out"'
+check "plan-template：只查工程项目"       'grep -q "^eng: plan-template: " <<<"$out" && ! grep -q "^eng2: plan-template" <<<"$out" && ! grep -q "^rsn: plan-template" <<<"$out"'
+check "认得出 0.6.10 的 plan 模板"         'printf "# 计划\n\n## 步骤\n- [ ] 1. <当前步骤> ← 进行中\n" > "$T/snap/eng/plan.md"; bash "$PT" lint eng | grep -q "^eng: plan-template: .*<当前步骤>"'
+
+echo "# 快照层：journal-archive"
+JR="$T/snap/eng"; PM=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m); CM=$(date +%Y-%m)
+{ printf '# Journal（只追加）\n\n## 无日期的老条目\n老正文\n'
+  for m in 2025-09 2025-10; do for i in $(seq 1 30); do printf '## %s-%02d · session %d · @x\n%s\n\n' "$m" "$((i % 28 + 1))" "$i" "$(head -c 2000 /dev/zero | tr '\0' 'o')"; done; done
+  printf '## [%s-02] 结果 | t | 上月\n```\n## 代码块里的不算标题\n```\n\n' "$PM"
+  printf '## 认不出日期但在新条目之后\nx\n'
+  printf '## [%s-01] 决定 | t | 当月\n末尾\n' "$CM"; } > "$JR/journal.md"
+git -C "$JR" add -A >/dev/null; git -C "$JR" -c user.name=t -c user.email=t@t commit -qm big
+JPY="$(dirname "$PT")/journal.py"
+stat(){ python3 -c "
+import sys; sys.path.insert(0, '$(dirname "$PT")'); import journal, glob
+ents = []
+for p in sys.argv[1:]:
+    ents += journal.split(journal.read_raw(p))[1]
+print(len(ents), sum(len(e.encode()) for e in ents))" "$@"; }
+s0=$(stat "$JR/journal.md")
+echo "未提交的进展" >> "$JR/state.md"
+out=$(bash "$PT" journal-archive eng); rc=$?
+s1=$(stat "$JR/journal.md" "$JR"/archive/journal-*.md)
+check "journal-archive 条数与总字节数守恒" '[ $rc -eq 0 ] && [ "$s0" = "$s1" ] && [ "$(cut -d" " -f1 <<<"$s0")" = 64 ]'
+check "按月分文件，认不出日期的旧条目进 early" '[ "$(grep -c "^## " "$JR/archive/journal-2025-09.md")" = 30 ] && [ "$(grep -c "^## " "$JR/archive/journal-2025-10.md")" = 30 ] && grep -q "^## 无日期的老条目" "$JR/archive/journal-early.md"'
+check "当月、上月与其后的无日期条目留下，代码块不拆" 'grep -q "^## \[$PM-02\]" "$JR/journal.md" && grep -q "^## \[$CM-01\]" "$JR/journal.md" && grep -q "^## 认不出日期但在新条目之后" "$JR/journal.md" && grep -q "^## 代码块里的不算标题" "$JR/journal.md"'
+check "顶部留一行说明并提交（只提交 journal 与归档）" 'sed -n 2p "$JR/journal.md" | grep -q "^> 归档：" && [ "$(git -C "$JR" status --porcelain)" = " M state.md" ] && git -C "$JR" log -1 --format=%s | grep -q "^journal-archive @host-me"'
+check "搬走的条目一字不改、journal 只多了说明行" 'python3 - "$JR" <<PY
+import subprocess, sys; d = sys.argv[1]
+old = subprocess.run(["git", "-C", d, "show", "HEAD~1:journal.md"], capture_output=True, text=True).stdout
+arc = "".join(open(f"{d}/archive/journal-{m}.md", encoding="utf-8").read() for m in ("early", "2025-09", "2025-10"))
+new = open(f"{d}/journal.md", encoding="utf-8").read().split("\n", 2)
+sys.exit(0 if old == new[0] + "\n\n" + arc + new[2][1:] else 1)   # 原文 = 标题 + 归档（原顺序）+ 留下的
+PY'
+out=$(bash "$PT" journal-archive eng)
+check "不到 100 KB 不搬"                  'grep -q "不用搬" <<<"$out" && [ "$(git -C "$JR" log -1 --format=%s | cut -c1-15)" = "journal-archive" ]'
+export PROJECT_TRACKER_ROOT="$T/root"
 
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

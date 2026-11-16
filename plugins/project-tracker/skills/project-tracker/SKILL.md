@@ -20,9 +20,9 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 ├── research.html   # 全局研究监控（pt monitor 生成，不在任何项目仓里）
 └── <slug>/          # git 仓
     ├── charter.md  # 目标、完成标准、边界、验证方法、Workdir、Host。写一次，极少改
-    ├── plan.md     # 怎么做。可重写
-    ├── state.md    # 现在在哪 + 别再试的路 + 快速启动。可重写，≤100 行（约 8000 字）；「一句话概括」首行进 INDEX
-    ├── journal.md  # 只追加，一会话一条
+    ├── plan.md     # 工程项目：步骤清单。研究项目不要（前沿就是计划）
+    ├── state.md    # 快照：固定小节，≤3 KB，每次重写；「一句话概括」首行进 INDEX
+    ├── journal.md  # 只追加，一会话一条；超 100 KB 时 pt journal-archive 按月搬到 archive/
     ├── decisions.md# 只追加的 ADR
     ├── verifier.md # 研究项目：考官卡（拿什么判对错），用户确认后冻结
     ├── experiments.md # 研究项目：实验台账，一行一个实验，行不删（占行后回填读数，更正留痕）；读数只在这里
@@ -36,7 +36,7 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 ## 三条不变量
 
 1. `journal.md` 与 `decisions.md` **只追加**。事实源是它们加上 `experiments.md`（研究项目的实验结论）和产物文件（证据）；`state.md`、`plan.md` 与总结只是带出处的提炼，都能从事实源重建。
-2. `state.md` 与 `plan.md` 是**快照**，随时可覆盖；state 硬上限 100 行。
+2. `state.md`、`plan.md` 与研究树的「当前认识」是**快照**：每次重写，不追加；旧版交给 git 与 journal。
 3. **只写 git 记不下来的东西**：意图、假设、失败的尝试、判断依据、用户原话。"改了什么"看 commit。
 
 ## 工具
@@ -51,8 +51,9 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
 | `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话进 INDEX，不是提交说明） |
 | `pt research <slug>` | 研究项目：加考官卡 `verifier.md`、实验台账 `experiments.md` 与研究树根节点 `tree/Q1.md`（已有的不动） |
-| `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
-| `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 落后 journal、待拍板/等用户超过 7 天、模板占位没填、journal 或 state 超限、Host 不是规范主机名、本机 Workdir 不存在、state 没有焦点也没有下一步、研究树根或节点过大。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE。checkpoint 前后想查漏时跑，按发现去改档案 |
+| `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文（含焦点链上各问题节点的当前认识）、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
+| `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 不合格（缺哪节、多了哪节、超多少）或落后 journal、待拍板超过 7 天、模板占位没填、工程项目 plan 还是模板、Status 不是规范取值、journal 或新格式条目超限、问题节点当前认识超 3 KB 或有「更新」「历史」类追加小节、Host 不是规范主机名、本机 Workdir 不存在、研究树根或节点过大。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE |
+| `pt journal-archive <slug>` | journal.md 超过 100 KB 时，把上月之前的整月条目原样搬到 `archive/journal-YYYY-MM.md`（认不出日期的旧条目进 `archive/journal-early.md`），核对条数与字节数守恒后提交，顶部留一行说明 |
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html` 与各 `tree.html` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
@@ -65,7 +66,37 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 档案写全了，会话上下文随时可以丢：压缩、换新会话都不丢东西，长会话不必硬撑着一个越滚越大的上下文。上下文压缩时两个 hook 接力：压缩前让摘要单列「未入档的进展」，压缩后按会话绑定重新注入简报（不在 Workdir 里开的会话也一样），并提示先把这些进展 checkpoint 再接着干。
 
-简报自己也有预算：整份不超过 8 KB；超出时 state 按 一句话 → 焦点（焦点、焦点节点、研究树、现在在哪）→ 下一步 → 待拍板、等用户 → 别再试 → 资产 的顺序先占预算（放不全的留前几行），ADR 标题只留最近 5 条，其余块（charter、plan、考官卡、研究树、state 其余节）各换成一行去处（`cat` 路径或 `pt tree <slug>`），用到再看。所以焦点写进 state 的这几个小节名之一。journal 只追加、不删，brief 只打印最后 3 条里靠后的部分，省略处给行号与原文路径。所以 journal 条目写增量，长证据放产物文件、条目里只记路径和关键数字。多早压缩由 Claude Code 的设置决定，见 [reference/hooks.md](reference/hooks.md)。
+简报整份不超过 8 KB，依次是：lint 告警（最多 5 行）→ state 全文 →（研究项目）焦点链上 active 问题节点的当前认识 → 前沿标题 → journal 最近 8 条标题（跳过「运维」）→ 最近 3 条 ADR 标题 →「要找什么去哪」。charter、plan、考官卡、journal 正文只给去处，用到再读；放不下时先截前沿、再截 journal 标题、最后截当前认识，截掉的给去处。state 不合格（见下）的旧档案照旧排版（charter、state、journal 最后 3 条正文……），`pt lint` 会说缺什么，checkpoint 时顺手改成固定小节。多早压缩由 Claude Code 的设置决定，见 [reference/hooks.md](reference/hooks.md)。
+
+### 快照写什么
+
+**state.md** 只用这些二级小节，按此顺序，全文不超过 3 KB；有「焦点」和「下一步」、没有别的二级小节、不超 3 KB 才算合格：
+
+| 小节 | 写什么 |
+|---|---|
+| `## 一句话概括` | 首行进 INDEX |
+| `## 焦点` | 研究项目写节点 ID 加一句话；工程项目写当前在做的线程或步骤 |
+| `## 下一步` | 只写 1 条可执行的动作 |
+| `## 待拍板` | 编号，每条以 `[待用户 MM-DD]` 开头；定了就删，去处记进 journal 或 ADR |
+| `## 线程` | 可选，每行开头恰好一个标签：`[进行中]` `[已验证未提交]` `[等用户]` `[已推送 <commit>]` `[搁置]` |
+| `## 入口与产物` | 只列现行的仓库、目录、容器、页面 |
+| `## 快速启动` | 能直接复制运行的命令 |
+| `## 别再试` | 可选，不超过 10 行 |
+
+`Updated:` 行由 `pt index` 写当天日期。
+
+**journal** 新条目标题 `## [YYYY-MM-DD] 类别 | 节点或线程 | 一句话`，类别取 结果、决定、方向、运维、评审；旧条目不改写。条目写增量，单条不超过 3 KB，长证据放产物文件、条目里只记路径和关键数字。**方向改变必须写 ADR，charter 的范围变了也要。**
+
+**要找什么去哪**：
+
+| 要找 | 去哪 |
+|---|---|
+| 下一步、待拍板、入口 | state |
+| 数字、读数 | 台账 experiments.md |
+| 某条分支为何关 | 节点的 `## 结论`（`pt tree <slug> --ctx ID`） |
+| 现在信什么 | 焦点链上的当前认识（`pt tree <slug>`） |
+| 为何转向 | ADR |
+| 过程、证据路径 | journal 正文（更早的在 archive/journal-*.md） |
 
 ## 模式
 
@@ -87,11 +118,11 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 3. 已知约束？（不能动的接口、deadline、兼容版本）
 4. 怎么验证？（测试命令、对照实现、基线数据）
 
-答不上的写 `待定` 进 `Open questions`，**不要替用户猜**。然后 `pt new <slug> "<名称>" [workdir…]`（项目跨仓库就给多个 workdir；代码在别的机器上就加 `--host <别名>` 并写那台机器上的路径），把回答填进 charter，写 plan。slug 小写连字符，定下后不改。
+答不上的写 `待定` 进 `Open questions`，**不要替用户猜**。然后 `pt new <slug> "<名称>" [workdir…]`（项目跨仓库就给多个 workdir；代码在别的机器上就加 `--host <别名>` 并写那台机器上的路径），把回答填进 charter。工程项目写 plan（一步一行 `- [ ] 步骤 → 验证：命令或判据`）；研究项目接着 `pt research`，不写 plan（没动过的模板 plan 它会删掉）。slug 小写连字符，定下后不改。charter 的 `Status` 只取 进行中、暂停、已完成、已放弃，备注写到 state。
 
 ### resume
 
-`pt brief <slug>` 输出的顺序就是阅读顺序：INDEX 行 → charter → state →（研究项目）考官卡与研究树或台账末行 → journal 最后 3 条 → ADR 标题 → plan。通常读到这里就够；state 与 journal 对不上、或要查历史时，再往前翻 journal、读 ADR 正文。
+`pt brief <slug>` 输出的顺序就是阅读顺序（见上）。通常读到这里就够；要什么再按「要找什么去哪」去读。
 
 然后 **≤5 行**汇报：在哪、上次做了什么、下一步、卡在哪、待拍板项。不贴文件原文。
 
@@ -101,13 +132,13 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 写入顺序（不可重建的先写）：
 
-1. **补 experiments.md**（研究项目）：本段做过的实验各一行或补读数与结论；有研究树的，同步改动到的节点（status、verdict、结论）和根的「当前认识」。然后**追加 journal**。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。session 号 brief 已打印。
-2. **重写 state**。journal 的 `Learned` 里失败的路**提升到 state 的"别再试"**，否则下个会话看不到。有研究树的项目不在 state 写这些：失败的路写进那个节点的 `## 结论`，「别再这样做」写进根的 `## 教训`，现在相信什么写进根的 `## 当前认识`；state 只留指针。
-3. **更新 plan**（若变）。重大方向调整先在 journal 记为什么。
-4. **追加 decisions**（若做了架构级选择）。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
+1. **补 experiments.md**（研究项目）：本段做过的实验各一行或补读数与结论；有研究树的，同步改动到的节点（status、verdict、结论），**重写**受影响问题节点的「当前认识」。然后**追加 journal**（新格式标题）。`Result` 必须带证据：跑了什么命令、看到什么输出。"应该能跑"不是证据。
+2. **重写 state**（固定小节）。失败的路：工程项目进「别再试」；研究项目写进那个节点的 `## 结论`，「别再这样做」写进根的 `## 教训`。
+3. **更新 plan**（工程项目，若变）：做完的步骤改成 `[x MM-DD]` 加证据路径。
+4. **追加 decisions**：架构级选择、方向改变、charter 范围变化都写。推翻旧决定只新增 ADR 并把旧条目 Status 改成"已推翻（见 ADR-00NN）"。
 5. `pt index <slug> "<一句话>" [状态]`：写 state 的一句话、提交、重建 INDEX。项目做完或放弃在这里给状态。
 
-完成标准打勾的唯一依据是 journal 里有对应证据条目。同一段上下文里再次 checkpoint 只改写本段那条 journal，不新开 session 号；上下文压缩过就另起一条（brief 会重新给号），压缩前那条不再动。
+完成标准打勾的唯一依据是 journal 里有对应证据条目。同一段上下文里再次 checkpoint 只改写本段那条 journal；上下文压缩过就另起一条，压缩前那条不再动。
 
 ## 多机：一台中心机管全机队（可选）
 
@@ -121,10 +152,10 @@ brief 出现"分叉"时，两边各有对方没有的 checkpoint：先 `git merg
 
 研究常常不是一条直线：一个问题拆出几个假设，假设被否掉就回到问题换一个。研究树把这条谱系写下来，让新会话一眼看到哪些分支还活着、哪些关了、为什么关。
 
-- 一节点一文件 `tree/<ID>.md`（文件名只能是 `Q<n>.md` / `H<n>.md`，别的文件脚本忽略并告警）：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（一个 ID；根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded | abandoned`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。每个根另有属于它自己的 `## 当前认识`、`## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
+- 一节点一文件 `tree/<ID>.md`（文件名只能是 `Q<n>.md` / `H<n>.md`，别的文件脚本忽略并告警）：`Q<n>` 是问题、`H<n>` 是假设，ID 稳定不复用（`pt tree <slug> --next Q|H` 给下一个号）。frontmatter 写 `title`、`parent`（一个 ID；根节点留空，可以有多个根）、`status`（`open | active | parked | closed`）；`closed` 再写 `verdict`（`supported | refuted | inconclusive | superseded | abandoned`），`superseded` 再写 `by`。正文 `## 判别`（跑之前写）与 `## 结论`（关的时候写，引用实验 id 与证据路径）。任何问题节点都可以有 `## 当前认识`：这个问题下现在相信什么、依据哪几行实验，每次重写，不超过 15 条或 3 KB，不加「更新」「历史」小节；根节点的只放跨分支的认识，另有 `## 约束`、`## 教训`。节点间其他关系在正文写 `[[H7]]`。
 - 台账 `experiments.md` 的 `node` 列填这行实验判的节点（可多个）。读数只在台账，节点只引用实验 id。行不删：可以先占行、跑完回填读数，更正留痕。
-- `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点或行列数不对、成环、frontmatter 写错、被忽略的文件、合并冲突标记）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别（其中的 `[[ID]]` 换成 `[[…]]`）、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意——所以问题节点的判别不写候选与排名。根的约束里 `[[Q5]]` 引用了另一个根时，那个根的约束也一并给。
-- 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，默认是交互式总览图（左→右的树，形状分问题与假设，填充与图标分状态与 verdict；缩放平移、点节点看详情、收起子树、「只看活着」把全关的子树收成一个桩），可切到可折叠的列表；右侧是节点详情与挂接的台账行。`pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
+- `pt tree <slug>`：活跃根节点的当前认识/约束/教训（搁置或已关的根只给一行指引，全文用 `--ctx` 或 tree.html）、焦点链（根 → state「焦点」写的节点；没写就取进行中的叶节点）上其他问题节点的当前认识、进行中节点（带祖先链）、open/parked 标题、一致性告警（parent 或 by 悬空、closed 缺 verdict 或结论、台账 node 指向不存在的节点或行列数不对、成环、frontmatter 写错、被忽略的文件、合并冲突标记）。`--all` 再加已关分支索引。`--ctx ID` 给在一个节点上干活所需的上下文（根的约束/认识/教训、祖先链、兄弟、本节点全文、本节点与子节点的台账行）；加 `--blind` 只给本节点判别（其中的 `[[ID]]` 换成 `[[…]]`）、根约束和考官的指标与判定依据，适合让一个没见过现有猜想的 agent 独立出主意——所以问题节点的判别不写候选与排名。根的约束里 `[[Q5]]` 引用了另一个根时，那个根的约束也一并给。
+- 每次 `pt tree` 和 `pt index` 都重写 `tree.html`：离线可开的单文件，默认是交互式总览图（左→右的树，形状分问题与假设，填充与图标分状态与 verdict；缩放平移、点节点看详情、收起子树、「只看活着」把全关的子树收成一个桩），可切到可折叠的列表；右侧是节点详情与挂接的台账行。旧排版的 `pt brief` 在有 `tree/` 时用研究树代替台账末行；考官卡状态是冻结时只打印状态行与「指标与聚合定义」「判定依据」两节。
 - `tree.html` 是派生物：合并冲突里不用手合，`pt index` 会重新生成并收下；别的文件还留着冲突标记时 `pt index` 拒绝提交。`pt research` 与 `pt index` 会在档案根补上 `.ignore`（`tree.html` 一行，让 ripgrep / Grep 搜索跳过它）和 `.gitattributes`（`tree.html -diff`，让 git diff 不展开它），已有的行不重复加。
 - 跨项目看研究进展：打开档案根的 `research.html`（`pt monitor` 生成；`pt index` 研究项目后、中心机每次 sync 后自动重写，失败只告警）。每个研究项目一张卡片（节点状态计数、焦点路径即每个 active 叶节点的根→节点链、告警数），点进各自的 `tree.html`；下面是最近 14 天的节点变化（新增、status / verdict 变化、换父、删除，取自各档案 git 历史与提交所在机器）。它不在任何项目仓里，不提交。要在别的设备上看：`pt serve install`（见 README「在别的设备上看」）。
 - 没有 `tree/` 的档案一切照旧；旧台账没有 `node` 列也照常解析。字段细节见 [reference/writing.md](reference/writing.md)。

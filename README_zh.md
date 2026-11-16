@@ -9,8 +9,8 @@
 | 文件 | 作用 | 可变性 |
 |---|---|---|
 | `charter.md` | 目标、完成标准、不做什么、约束、怎么验证、`Workdir` | 写一次，极少改 |
-| `plan.md` | 打算怎么做 | 快照，随时重写 |
-| `state.md` | 现在在哪、别再试的路、快速启动命令 | 快照，≤ 100 行 |
+| `plan.md` | 工程项目的步骤清单（研究项目不用） | 快照，随时重写 |
+| `state.md` | 固定小节：一句话、焦点、下一步、待拍板、线程、入口与产物、快速启动、别再试 | 快照，每次重写，≤ 3 KB |
 | `journal.md` | 每个会话一条，带证据 | **只追加** |
 | `decisions.md` | 架构决策记录（ADR） | **只追加** |
 
@@ -40,7 +40,7 @@ claude --plugin-dir /path/to/claude-project-tracker/plugins/project-tracker
   命中多个只列 slug、不加载任何档案，等你点名；命中零个静默。
 - `PreCompact` 跑 `pt.sh precompact`：输出并进压缩指令，让摘要留下还没 checkpoint 的进展。压缩后 `SessionStart`
   按会话绑定重新注入同一项目的简报（会话在哪个目录开的都行），并提示补 checkpoint。
-  简报自身有预算：整份不超过 8 KB，超出时 state 只留关键几节，其余块各换成一行去处；journal 只打印最后 3 条里靠后的部分。
+  简报自身有预算：整份不超过 8 KB；正文（charter、plan、考官卡、journal）只给去处。
 
 ### Codex CLI
 
@@ -152,8 +152,8 @@ bash $PT serve run --allow-local   # 前台调试：没有身份头的请求也�
 
 > "继续 auth-refactor，我们做到哪了？"
 
-`pt.sh brief <slug>` 按顺序输出冷启动所需：INDEX 行、`charter.md`、`state.md`、journal **最后三条**、ADR 标题、
-`plan.md`。然后 ≤5 行汇报：在哪、上次做了什么、下一步、卡在哪、待拍板项。
+`pt.sh brief <slug>` 按顺序输出冷启动所需：lint 告警、`state.md` 全文、焦点链上的当前认识、前沿标题、journal 最近 8 条**标题**、
+最近 3 条 ADR 标题、「要找什么去哪」（state 还没改成固定小节的旧档案照 0.6.10 排版）。然后 ≤5 行汇报：在哪、上次做了什么、下一步、卡在哪、待拍板项。
 
 ### Checkpoint
 
@@ -162,12 +162,12 @@ bash $PT serve run --allow-local   # 前台调试：没有身份头的请求也�
 plan 一步完成、完成标准翻绿、发现死路、`/compact` 之前，skill 会**主动提议** checkpoint。写入顺序按不可重建优先：
 
 1. 追加 `journal.md`，`Result` 带证据（命令、输出、failed→passed）
-2. 重写 `state.md`，把 journal 里失败的路提升到"别再试"
+2. 重写 `state.md`（固定小节），研究项目重写受影响问题节点的「当前认识」
 3. `plan.md` 有变则更新
 4. 有架构级选择则追加 ADR
 5. `pt.sh index <slug> "<一句话>" [状态]`，项目完成或放弃在这里给状态
 
-一次会话只有一条 journal；同一会话再次 checkpoint 改写本会话这条。
+一次会话只有一条 journal（标题 `## [YYYY-MM-DD] 类别 | 节点或线程 | 一句话`）；同一会话再次 checkpoint 改写本会话这条。方向改变必须写 ADR。
 
 ### 列表
 

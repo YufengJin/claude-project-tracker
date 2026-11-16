@@ -10,8 +10,8 @@ you never hunt through repositories for them. Each project records which code di
 | File | Role | Mutability |
 |---|---|---|
 | `charter.md` | goal, done-criteria, out-of-scope, constraints, verification, `Workdir` | written once, rarely changed |
-| `plan.md` | how you intend to get there | snapshot, rewritten freely |
-| `state.md` | where you are now, dead ends, quick-start commands | snapshot, ≤ 100 lines |
+| `plan.md` | engineering projects: step checklist (research projects skip it) | snapshot, rewritten freely |
+| `state.md` | fixed sections: summary, focus, next step, pending decisions, threads, entry points, quick start, do-not-retry | snapshot, rewritten each time, ≤ 3 KB |
 | `journal.md` | one entry per session with evidence | **append-only** |
 | `decisions.md` | architecture decision records (ADR) | **append-only** |
 
@@ -173,8 +173,10 @@ directories if the project spans repos) and the skill fills in charter and plan.
 
 > "Continue auth-refactor, where were we?"
 
-`pt.sh brief <slug>` prints exactly what a cold start needs, in order: the INDEX row, `charter.md`,
-`state.md`, the **last three** journal entries, the ADR titles, `plan.md`. You get at most five lines:
+`pt.sh brief <slug>` prints exactly what a cold start needs, in order: lint warnings, `state.md` in full, the
+current understanding along the focus chain, frontier titles, the **titles** of the last eight journal entries,
+the last three ADR titles, and a "where to look" table (archives whose state is not yet in fixed sections keep
+the 0.6.10 layout). You get at most five lines:
 where we are, what happened last time, next step, what is blocked, what needs your decision.
 
 ### Checkpoint
@@ -185,12 +187,13 @@ The skill also **proposes** a checkpoint on its own when a plan step finishes, a
 green, a dead end is found, or before `/compact`. Files are written in order of what cannot be rebuilt:
 
 1. append a `journal.md` entry whose `Result` carries evidence (command, output, failed→passed)
-2. rewrite `state.md`, promoting failed attempts from the journal into *do not retry*
+2. rewrite `state.md` in its fixed sections; research projects rewrite the affected nodes' current understanding
 3. update `plan.md` if it changed
 4. append an ADR to `decisions.md` if an architecture-level choice was made
 5. `pt.sh index <slug> "<one-liner>" [status]`; give a status when the project is done or dropped
 
-One session writes exactly one journal entry; a second checkpoint in the same session rewrites that entry.
+One session writes exactly one journal entry (title `## [YYYY-MM-DD] category | node or thread | one line`); a second
+checkpoint in the same session rewrites that entry. A change of direction always gets an ADR.
 
 ### List
 

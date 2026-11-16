@@ -223,6 +223,25 @@ hpt new gone "中心重新立的同名项目" >/dev/null
 check "new 同名清掉墓碑"                   '! grep -qx gone "$H/.deleted" && [ -f "$H/gone/charter.md" ]'
 echo pa > "$H/ACTIVE"; hpt rm gone >/dev/null; rm -rf "$NB/gone"
 
+echo "# journal-archive 与多机同步"
+npt a new pj "A 上的长 journal" >/dev/null
+{ for m in 2025-08 2025-09; do for i in $(seq 1 30); do printf '\n## %s-%02d · session %d · @host-a\n%s\n' "$m" "$((i % 28 + 1))" "$i" "$(head -c 2000 /dev/zero | tr '\0' 'j')"; done; done
+  printf '\n## [%s] 结果 | t | 当月\n本月\n' "$(date +%F)"; } >> "$NA/pj/journal.md"
+npt a index pj "长 journal" >/dev/null
+hpt sync -q >/dev/null
+check "前提：中心与节点同一提交、journal 超 100 KB" '[ "$(head_of "$H/pj")" = "$(head_of "$NA/pj")" ] && [ "$(wc -c < "$H/pj/journal.md")" -gt 102400 ]'
+out=$(hpt journal-archive pj)
+check "中心搬 journal 并提交"            '[ -f "$H/pj/archive/journal-2025-08.md" ] && [ -f "$H/pj/archive/journal-2025-09.md" ] && [ -z "$(git -C "$H/pj" status --porcelain)" ]'
+out=$(hpt sync -q)
+check "推到节点：快进、不分叉"            'grep -q "pj: ↑ 推送到 a" <<<"$out" && ! grep -q "分叉" <<<"$out" && [ ! -f "$H/.fleet/forked/pj" ] && [ "$(head_of "$NA/pj")" = "$(head_of "$H/pj")" ] && [ -z "$(git -C "$NA/pj" status --porcelain)" ]'
+check "节点上的归档与中心逐字一致"        'diff -r -x .git "$H/pj" "$NA/pj" >/dev/null'
+printf '\n## [%s] 决定 | t | 节点在归档后接着写\n继续\n' "$(date +%F)" >> "$NA/pj/journal.md"
+npt a index pj "归档后节点进展" >/dev/null
+out=$(hpt sync -q)
+check "节点之后的 checkpoint 照常快进回中心" 'grep -q "pj: ↓ 快进" <<<"$out" && grep -q "节点在归档后接着写" "$H/pj/journal.md" && [ ! -f "$H/.fleet/forked/pj" ]'
+npt a journal-archive pj >/dev/null
+check "节点上再跑：不到 100 KB 不搬、不提交" '[ "$(head_of "$NA/pj")" = "$(head_of "$H/pj")" ]'
+
 echo "# 研究监控：sync 后中心生成 research.html"
 check "还没有研究项目 → 不生成"            '[ ! -f "$H/research.html" ]'
 npt b new rsb "B 上的研究" >/dev/null; npt b research rsb >/dev/null
