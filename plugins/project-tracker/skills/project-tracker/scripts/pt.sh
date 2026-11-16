@@ -30,6 +30,9 @@ THIS_HOST="${PT_HOSTNAME:-$(hostname -s)}"
 SLUG_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
 # brief 里 journal 的字节预算（约 6000 个汉字）。journal 本身只追加、不删，预算只管简报打印多少
 JOURNAL_BUDGET="${PT_BRIEF_JOURNAL_BYTES:-18000}"
+# 整份简报的硬上限（字节）。超出时 state 只留这些节，其余块改成一行指针（去哪看全文）
+BRIEF_MAX_BYTES=8192
+BRIEF_STATE_KEYS='一句话|焦点|下一步|待拍板|资产'
 STATE_MAX_BYTES=24000
 SESS_DIR="$ROOT/.sessions"
 HOOK_IN=""
@@ -57,9 +60,9 @@ bound_slug() {
   [ -n "$s" ] && [ -f "$ROOT/$s/charter.md" ] && echo "$s"
 }
 
-# journal_tail <file> <起始行>：打印起始行之后的条目。标题都留；正文从最新往回留到预算为止，省掉的给行号
+# journal_tail <file> <起始行> [预算]：打印起始行之后的条目。标题都留；正文从最新往回留到预算为止，省掉的给行号
 journal_tail() {
-  LC_ALL=C awk -v start="$2" -v budget="$JOURNAL_BUDGET" '
+  LC_ALL=C awk -v start="$2" -v budget="${3:-$JOURNAL_BUDGET}" '
     NR >= start { n++; line[n] = $0; no[n] = NR }
     END {
       for (i = n; i >= 1; i--) {
@@ -264,6 +267,80 @@ cmd_brief() {
   bind_session "$SLUG"
   render_index
 
+  local head; head="$(brief_head)"
+  local -A FULL=() CUR=() PTR=()
+  local K="charter state verifier tree journal adr plan" k old t tw="" jh="" START="" TOTAL jb=0 foot capped=""
+  local idx; idx="$(section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)")"
+
+  FULL[charter]="$(section charter.md; cat "$DIR/charter.md" 2>/dev/null || echo "(缺失)")"
+  PTR[charter]="$(section charter.md; brief_ptr "${FULL[charter]}" "cat $DIR/charter.md")"
+  FULL[state]="$(section state.md; cat "$DIR/state.md" 2>/dev/null || echo "(缺失)")"
+  PTR[state]="${FULL[state]}"
+  if [ -f "$DIR/verifier.md" ]; then
+    FULL[verifier]="$(section verifier.md; verifier_brief "$DIR/verifier.md")"
+    PTR[verifier]="$(section verifier.md; brief_ptr "${FULL[verifier]}" "cat $DIR/verifier.md")"
+  fi
+  if [ -d "$DIR/tree" ]; then
+    if [ -f "$DIR/state.md" ] && awk '/^## (当前认识|别再试)/{f=1;next} /^## /{f=0} f&&NF&&!/^[-*]?[[:space:]]*无[[:space:]]*$/{x=1} END{exit !x}' "$DIR/state.md"; then
+      tw=$'\n'"[warn] state.md 还有「当前认识」或「别再试」：研究项目这两节应在根节点（tree/ 根的 ## 当前认识 / ## 教训），state 不复写"
+    fi
+    t="研究树（pt tree $SLUG；节点上下文 --ctx ID，已关分支 --all，全图 tree.html）"
+    FULL[tree]="$(section "$t"; python3 "$HERE/tree.py" "$DIR" --no-html 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)")$tw"
+    PTR[tree]="$(section "$t"; brief_ptr "${FULL[tree]}" "pt tree $SLUG")$tw"
+  elif [ -f "$DIR/experiments.md" ]; then
+    FULL[tree]="$(section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md")"
+    PTR[tree]="$(section "experiments.md 末 15 行（全表读原文）"; brief_ptr "${FULL[tree]}" "tail -n 15 $DIR/experiments.md")"
+  fi
+  if [ -f "$DIR/journal.md" ]; then
+    TOTAL=$(grep -c '^## ' "$DIR/journal.md")
+    START=$(grep -n '^## ' "$DIR/journal.md" | tail -n 3 | head -n 1 | cut -d: -f1)
+    jh="$(section "journal.md 最后 3 条"; echo "(共 $TOTAL 条，本会话 session 号 = $((TOTAL + 1))，标题写 @$THIS_HOST；原文 $DIR/journal.md 共 $(wc -l < "$DIR/journal.md") 行)")"
+    FULL[journal]="$jh"; PTR[journal]="$jh"
+    if [ -n "$START" ]; then
+      FULL[journal]+=$'\n'"$(journal_tail "$DIR/journal.md" "$START")"
+      PTR[journal]+=$'\n'"$(journal_tail "$DIR/journal.md" "$START" 0)"
+    fi
+  else
+    FULL[journal]="$(section "journal.md 最后 3 条"; echo "(缺失)")"; PTR[journal]="${FULL[journal]}"
+  fi
+  FULL[adr]="$(section "decisions.md 标题"; grep -E '^## ADR-' "$DIR/decisions.md" 2>/dev/null || echo "(无 ADR)")"
+  PTR[adr]="$(section "decisions.md 标题"; brief_ptr "${FULL[adr]}" "grep '^## ADR-' $DIR/decisions.md")"
+  FULL[plan]="$(section plan.md; cat "$DIR/plan.md" 2>/dev/null || echo "(缺失)")"
+  PTR[plan]="$(section plan.md; brief_ptr "${FULL[plan]}" "cat $DIR/plan.md")"
+
+  foot="$(brief_foot)"
+  for k in $K; do CUR[$k]="${FULL[$k]-}"; done
+  if [ "$(brief_total)" -gt "$BRIEF_MAX_BYTES" ]; then
+    # 超上限：先全换成指针，state 只留关键节，journal 拿剩余的一半，其余块按优先级能整块放就放，最后剩的再给 journal
+    capped=1; foot="$(brief_foot)"
+    for k in $K; do CUR[$k]="${PTR[$k]-}"; done
+    if [ -f "$DIR/state.md" ]; then
+      CUR[state]="$(section state.md)"
+      CUR[state]+=$'\n'"$(state_short "$DIR/state.md" $((BRIEF_MAX_BYTES - $(brief_total) - 400)))"
+      PTR[state]="${CUR[state]}"
+    fi
+    if [ -n "$START" ]; then
+      jb=$(( (BRIEF_MAX_BYTES - $(brief_total)) / 2 ))
+      brief_journal "$jb"
+    fi
+    for k in state adr plan verifier charter tree; do
+      [ -n "${FULL[$k]-}" ] || continue
+      old="${CUR[$k]}"; CUR[$k]="${FULL[$k]}"
+      [ "$(brief_total)" -le "$BRIEF_MAX_BYTES" ] || CUR[$k]="$old"
+    done
+    [ -n "$START" ] && [ "${CUR[journal]}" != "${FULL[journal]}" ] && brief_journal $(( jb + (BRIEF_MAX_BYTES - $(brief_total)) * 3 / 4 ))
+  fi
+  printf '%s\n' "$head" "$idx"
+  for k in $K; do [ -n "${CUR[$k]-}" ] && printf '%s\n' "${CUR[$k]}"; done
+  printf '%s\n' "$foot"
+  t="$(brief_total)"
+  [ "$t" -le "$BRIEF_MAX_BYTES" ] || printf '[warn] 简报 %s 字节，必留部分已超过 %s 字节上限\n' "$t" "$BRIEF_MAX_BYTES"
+  return 0
+}
+
+# 以下几个 brief 帮手读 cmd_brief 的局部变量（bash 动态作用域）
+brief_head() {
+  local h a=""
   echo "[project-tracker] 项目简报: $SLUG  ($DIR)"
   echo "只读写这个目录；其他项目的档案与本会话无关，不要打开。"
   h="$(host_of "$SLUG")"
@@ -281,37 +358,10 @@ cmd_brief() {
     echo "  冲突按语义合（journal 两边条目都保留、state 重写成合并后的现状；tree.html 不用手合，pt index 会重新生成），提交后 pt.sh sync $a。"
   fi
   [ -f "$ROOT/.fleet/active/$SLUG" ] && echo "派活 $(cat "$ROOT/.fleet/active/$SLUG") 正在改这个项目：结束前不要 checkpoint（pt.sh runs $SLUG）。"
+  return 0
+}
 
-  section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)"
-  section "charter.md"; cat "$DIR/charter.md" 2>/dev/null || echo "(缺失)"
-  section "state.md";   cat "$DIR/state.md"   2>/dev/null || echo "(缺失)"
-  [ -f "$DIR/verifier.md" ] && { section "verifier.md"; verifier_brief "$DIR/verifier.md"; }
-  if [ -d "$DIR/tree" ]; then
-    section "研究树（pt tree $SLUG；节点上下文 --ctx ID，已关分支 --all，全图 tree.html）"
-    python3 "$HERE/tree.py" "$DIR" --no-html 2>&1 || echo "(tree.py 失败；直接读 $DIR/tree/)"
-    if [ -f "$DIR/state.md" ] && awk '/^## (当前认识|别再试)/{f=1;next} /^## /{f=0} f&&NF&&!/^[-*]?[[:space:]]*无[[:space:]]*$/{x=1} END{exit !x}' "$DIR/state.md"; then
-      echo "[warn] state.md 还有「当前认识」或「别再试」：研究项目这两节应在根节点（tree/ 根的 ## 当前认识 / ## 教训），state 不复写"
-    fi
-  elif [ -f "$DIR/experiments.md" ]; then
-    section "experiments.md 末 15 行（全表读原文）"; tail -n 15 "$DIR/experiments.md"
-  fi
-
-  section "journal.md 最后 3 条"
-  if [ -f "$DIR/journal.md" ]; then
-    local TOTAL START
-    TOTAL=$(grep -c '^## ' "$DIR/journal.md")
-    START=$(grep -n '^## ' "$DIR/journal.md" | tail -n 3 | head -n 1 | cut -d: -f1)
-    echo "(共 $TOTAL 条，本会话 session 号 = $((TOTAL + 1))，标题写 @$THIS_HOST)"
-    [ -n "$START" ] && journal_tail "$DIR/journal.md" "$START"
-  else
-    echo "(缺失)"
-  fi
-
-  section "decisions.md 标题"
-  grep -E '^## ADR-' "$DIR/decisions.md" 2>/dev/null || echo "(无 ADR)"
-
-  section "plan.md"; cat "$DIR/plan.md" 2>/dev/null || echo "(缺失)"
-
+brief_foot() {
   if [ -f "$DIR/state.md" ]; then
     local LINES BYTES; LINES=$(wc -l < "$DIR/state.md"); BYTES=$(wc -c < "$DIR/state.md")
     if [ "$LINES" -gt 100 ] || [ "$BYTES" -gt "$STATE_MAX_BYTES" ]; then
@@ -322,11 +372,45 @@ cmd_brief() {
     local LAST; LAST=$(awk '/^## /{n=0} {n+=length($0)+1} END{print n+0}' "$DIR/journal.md")
     [ "$LAST" -gt 12000 ] && printf '\n[warn] journal 最后一条 %s 字节：条目写增量，长回报与证据放产物文件只记路径\n' "$LAST"
   fi
+  [ -n "$capped" ] && printf '\n[project-tracker] 档案超过简报上限 %s 字节：标「未展开」的块只给了去处，用到时按给出的命令看全文。\n' "$BRIEF_MAX_BYTES"
   if [ "$MODE" = compact ]; then
     printf '\n[project-tracker] 上下文刚被压缩，以上是档案里的现状。压缩摘要里有、档案里还没有的进展，先 checkpoint（追加一条新的 journal，session 号见上），再接着做手上的事；不用向用户复述简报。\n'
   else
     printf '\n[project-tracker] 读完给用户 ≤5 行汇报：在哪 / 上次做了什么 / 下一步 / 卡在哪 / 待拍板项。\n'
   fi
+}
+
+nbytes() { local LC_ALL=C; echo "${#1}"; }
+# 一行指针：被省掉的块有多大、用什么命令看全文
+brief_ptr() { echo "（未展开，约 $(nbytes "$1") 字节；全文：$2）"; }
+# 按 printf '%s\n' 逐块打印时的总字节数
+brief_total() {
+  local k n=$(( $(nbytes "$head") + $(nbytes "$idx") + $(nbytes "$foot") + 3 ))
+  for k in $K; do [ -n "${CUR[$k]-}" ] && n=$(( n + $(nbytes "${CUR[$k]}") + 1 )); done
+  echo "$n"
+}
+# brief_journal <预算>：按预算重排 journal 尾（不超 JOURNAL_BUDGET），整份超上限就退回只留标题
+brief_journal() {
+  local b=$1 old="${CUR[journal]}"
+  [ "$b" -gt "$JOURNAL_BUDGET" ] && b=$JOURNAL_BUDGET
+  [ "$b" -lt 0 ] && b=0
+  CUR[journal]="$jh"$'\n'"$(journal_tail "$DIR/journal.md" "$START" "$b")"
+  [ "$(brief_total)" -le "$BRIEF_MAX_BYTES" ] || CUR[journal]="$old"
+}
+
+# state_short <file> <预算>：只留标题、Updated 与 BRIEF_STATE_KEYS 命中的节（文件顺序，放到预算为止），其余节列一行去处
+state_short() {
+  LC_ALL=C awk -v budget="$2" -v keys="^## *($BRIEF_STATE_KEYS)" -v f="$1" '
+    /^## / { s++; head[s] = $0 }
+    { if (s) { body[s] = body[s] $0 "\n"; sz[s] += length($0) + 1 } else pre = pre $0 "\n" }
+    END {
+      printf "%s", pre; used = length(pre)
+      for (i = 1; i <= s; i++) {
+        if (head[i] ~ keys && used + sz[i] <= budget) { printf "%s", body[i]; used += sz[i]; continue }
+        h = head[i]; sub(/^## */, "", h); skip = skip (skip == "" ? "" : "、") h; cut += sz[i]
+      }
+      if (cut) printf "（未展开 state.md 的节：%s，共 %d 字节；全文：cat %s）\n", skip, cut, f
+    }' "$1"
 }
 
 # 考官卡：状态值（括号前那段）以「冻结」「已冻结」开头时只打印状态行与两节判据，其余读原文；「未冻结」「待冻结」不算

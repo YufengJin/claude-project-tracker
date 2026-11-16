@@ -45,7 +45,8 @@ The plugin ships two hooks (`hooks/hooks.json`):
 - `PreCompact` runs `pt.sh precompact`: its output joins the compaction instructions, so the summary keeps
   progress that has not been checkpointed yet. After compaction, `SessionStart` re-injects the brief of the
   project this session is bound to (wherever the session was started) and asks for that checkpoint.
-  The brief itself is budgeted: only the tail of the last three journal entries is printed.
+  The brief itself is budgeted: at most 8 KB in total; over that, state keeps only its key sections and every other
+  block becomes a one-line pointer to the full text. Only the tail of the last three journal entries is printed.
 
 ### Codex CLI
 

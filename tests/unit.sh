@@ -82,12 +82,27 @@ bash "$PT" new big "大 journal" "$T/other/big" >/dev/null
 for i in range(400): print('续 %d：' % i + '证据' * 60)"
   printf 'Next: 倒数第二条的下一步\n\n## 2026-02-02 · session 3\nGoal: 最新的目标\nNext: 最新的下一步\n'; } >> "$T/root/big/journal.md"
 out=$(bash "$PT" brief big)
-check "超预算时简报仍然很小"            '[ "$(printf %s "$out" | wc -c)" -lt 30000 ]'
+check "超预算时简报不超过 8192 字节"     '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
 check "三条的标题都在"                 'grep -q "^## .*session 1" <<<"$out" && grep -q "^## .*session 2" <<<"$out" && grep -q "^## .*session 3" <<<"$out"'
 check "最新一条完整、上一条留结尾"      'grep -q "^Goal: 最新的目标" <<<"$out" && grep -q "^Next: 最新的下一步" <<<"$out" && grep -q "^Next: 倒数第二条的下一步" <<<"$out" && grep -q "^续 399：" <<<"$out"'
 check "省掉的开头给出行号"             'grep -q "省略 journal.md 第 [0-9]*–[0-9]* 行" <<<"$out" && ! grep -q "^续 0：" <<<"$out" && ! grep -q "早先的目标" <<<"$out"'
 check "journal 原文没被动"             '[ "$(grep -c "^续 " "$T/root/big/journal.md")" = 400 ]'
-check "预算可调"                       '[ "$(PT_BRIEF_JOURNAL_BYTES=900000 bash "$PT" brief big | grep -c "^续 ")" = 400 ]'
+check "journal 预算可调小"               '[ "$(PT_BRIEF_JOURNAL_BYTES=1000 bash "$PT" brief big | grep -c "^续 ")" -lt "$(grep -c "^续 " <<<"$out")" ]'
+check "journal 给出原文路径与行数"       'grep -q "原文 $T/root/big/journal.md 共 [0-9]* 行" <<<"$out"'
+
+echo "# brief 的 8 KB 上限"
+bash "$PT" new fat "大 state" "$T/other/fat" >/dev/null
+python3 - "$T/root/fat/state.md" <<'PYS'
+import sys; p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+s = s.replace("## 进行中\n- 无", "## 进行中\n" + "".join("- 细节 %d：" % i + "过程" * 80 + "\n" for i in range(60)))
+s = s.replace("1. <具体到能直接动手>", "1. 下一步写在这里")
+open(p, "w", encoding="utf-8").write(s)
+PYS
+out=$(bash "$PT" brief fat)
+check "大 state：简报不超过 8192 字节"   '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
+check "大 state：留一句话与下一步"        'grep -q "^## 一句话概括" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out" && ! grep -q "^- 细节 0：" <<<"$out"'
+check "大 state：省掉的节给出去处"        'grep -q "未展开 state.md 的节：.*进行中.*cat $T/root/fat/state.md" <<<"$out" && grep -q "简报上限 8192 字节" <<<"$out"'
+check "没超上限的简报不提上限"            '! bash "$PT" brief alpha | grep -q "简报上限"'
 out=$(bash "$PT" brief alpha)
 check "没超预算的 journal 原样打印"     '! grep -q "省略 journal.md" <<<"$out" && grep -q "^Goal: x" <<<"$out"'
 
