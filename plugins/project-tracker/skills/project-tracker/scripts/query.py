@@ -72,7 +72,7 @@ def cond_line(c, short=False):
 def conditions_text(rec):
     s, cs = rec["slug"], rec["conditions"]
     out = [f"条件 · {s}（charter「完成标准」；状态只从点名该条件的判定里算：台账结论列以「过 G2」「不过 G2=15.3」开头，"
-           "journal「结果」条目里写「G3 过 <证据>」）"]
+           "journal「结果」条目里写「G3 过 <证据>」；「读数 G4=80」只挂数、不改状态）"]
     if not cs["registered"]:
         out.append("未登记：完成标准还没按「- G1 陈述 | 线: … | 尺: … | 来源: …」写，下面原样列出，状态一律「未登记」。")
         out += [f"  {x}" for x in cs["legacy"]] or ["  (charter 没有「完成标准」小节)"]

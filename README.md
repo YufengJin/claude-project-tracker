@@ -119,7 +119,8 @@ bash $PT runs [slug | --wait <run>]            # hub: dispatch status
 - **Condition lines**: charter 「完成标准」 holds one line per condition, `- G1 statement | 线: ≤2 mm | 尺: how it is measured | 来源: 用户定`.
   Only the user sets a line; until then write `线: 待用户（推荐 ≤2 mm）`. Status (过 / 不过 / 未测 / 线未定 / 不再适用) comes only from
   verdicts that name the condition (ledger conclusion `过 G2` / `不过 G2=15.3`, journal 「结果」 line `G3 过 <evidence>`);
-  a 过 / 不过 written against a line that is not set yet is shown as a plain reading and flagged by `pt lint`.
+  to attach a number without a verdict write `读数 G4=80` (ledger) or `G4 读数 80 <evidence>` (journal) — the form to use while a
+  line is not set; a 过 / 不过 written against an unset line is shown as a plain reading and flagged by `pt lint`.
 - **Catalog**: `<slug>/index.tsv` lists every node, ledger row, condition, ADR and journal entry (generated, never committed);
   `pt get` and `pt find` read records by id instead of whole files.
 - **Fixed-size brief**: `pt brief` is at most 8 KB with fixed-size blocks (lint, state, focus understanding, conditions,

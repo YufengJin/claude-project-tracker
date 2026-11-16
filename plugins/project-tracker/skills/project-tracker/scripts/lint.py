@@ -24,7 +24,7 @@ CHECKS = ("state-stale", "pending-stale", "template", "journal-size", "state-siz
 STATE_LAG_DAYS = 2          # state 的 Updated 比 journal 最新条目早这么多天及以上
 PENDING_DAYS = 7            # 待拍板 / 等用户 里的日期超过这么多天
 RESULT_CARD_DAYS = 14       # 这么多天内新写的「结果」条目没有卡：提示
-COND_FIRST = re.compile(r"^\s*(?:[-*+]\s+)?\**(?:不过|过)?\s*G\d")  # 第一段里有条件判定行的「结果」条目（判定条目）不要卡
+COND_FIRST = re.compile(r"^\s*(?:[-*+]\s+)?\**(?:不过|过|读数)?\s*G\d")  # 第一段里有条件判定行的「结果」条目（判定条目）不要卡
 JOURNAL_MAX = 100 * 1024
 ROOT_KNOW_MAX = 6 * 1024    # 根节点「当前认识」+「教训」
 NODE_MAX = 5 * 1024
@@ -227,8 +227,8 @@ def card_checks(rec, add):
             add("cond-format", f"条件 {c['id']}（charter.md:{c['lineno']}）：{c['bad']}；写法 - G1 陈述 | 线: … | 尺: … | 来源: …")
         said = [j for j in c["judgments"] if j.get("claimed")]
         if said:
-            add("cond-format", f"提示：{c['id']} 的线还没定，判定只能记读数（{short('、'.join(j['where'] for j in said), 60)} "
-                               f"写了过 / 不过，按读数显示；线由用户定）")
+            add("cond-format", f"提示：{c['id']} 的线还没定，改写成 读数 {c['id']}=值（{short('、'.join(j['where'] for j in said), 60)} "
+                               f"写了过 / 不过，现按读数显示）")
     for cid in sorted({j["cid"] for j in cs["orphans"]}):
         w = next(j["where"] for j in cs["orphans"] if j["cid"] == cid)
         add("cond-format", f"判定点名了 {cid}（{w}），但 charter「完成标准」里没有这条")

@@ -19,7 +19,7 @@ load(d) 返回（字段缺就是空串、空表或 None，不猜）：
                  "target": 线里的数（线定了且有方向时）或 None, "gap": 最好值离线还差多少（≥0，0 = 已到线；算不出 None）,
                  "bad": 写不成格式时的原因（空串 = 合格）}],
       "legacy": [没登记时「完成标准」原样的行],
-      判定 = {"verdict": 过|不过|读数（线没定的条件：作者写的过 / 不过只当读数，原词在 "claimed"）, "value": 数或 None, "eid": 证据编号, "date": YYYY-MM-DD 或 "", "where": "experiments.md:12" 等}},
+      判定 = {"verdict": 过|不过|读数（「读数 G4=80」只挂数、不判；线没定的条件上写的过 / 不过也当读数，原词在 "claimed"）, "value": 数或 None, "eid": 证据编号, "date": YYYY-MM-DD 或 "", "where": "experiments.md:12" 等}},
   "nodes": {ID: {"id", "kind": "Q"|"H", "title", "status": open|active|parked|closed, "verdict", "by": [ID],
                  "shown": 显示状态（问题：已答|未答；假设：在做|待做|搁置|成立|不成立|没定论|被取代|放弃|未跑）,
                  "parent", "children": [ID], "card": {"目的", "怎么做", "结果", "结论"}（问题只有目的、结果；没有的键不出现）,
@@ -61,8 +61,8 @@ COND_HEAD = "完成标准"
 COND_LINE = re.compile(r"^\s*[-*+]\s+(?:\[[ xX✓]\]\s*)?\**(G\d+[a-z]?)\**(?![\w-])[\s:：.、]*(.*)$")
 LINE_UNSET = re.compile(r"^\s*(|待.*|未定.*|推荐待定.*|<.*>|tbd|\?|？|—|-|–)\s*$", re.I)
 NUM = r"[-+−]?\d+(?:\.\d+)?"
-JUDGE_LEDGER = re.compile(rf"^(不过|过)\s*(G\d+[a-z]?)(?![\w-])(?:\s*[=＝]\s*({NUM}))?")
-JUDGE_JOURNAL = re.compile(rf"^\s*(?:[-*+]\s+)?\**(?:(G\d+[a-z]?)\s*(不过|过)|(不过|过)\s*(G\d+[a-z]?))(?![\w-])\**"
+JUDGE_LEDGER = re.compile(rf"^(不过|过|读数)\s*(G\d+[a-z]?)(?![\w-])(?:\s*[=＝]\s*({NUM}))?")
+JUDGE_JOURNAL = re.compile(rf"^\s*(?:[-*+]\s+)?\**(?:(G\d+[a-z]?)\s*(不过|过|读数)|(不过|过|读数)\s*(G\d+[a-z]?))(?![\w-])\**"
                            rf"(?:\s*[=＝]?\s*({NUM}))?\s*(.*)$")
 JUDGE_SEP = re.compile(r"^[\s,，、;；/]+")
 MIN_WORDS = ("≤", "<=", "<", "不超过", "以内", "以下", "至多", "不大于", "小于")
@@ -262,7 +262,7 @@ def ledger_dates(d, ids):
 
 
 def judgments_in_cell(text):
-    """台账结论格开头的判定：「过 G2」「不过 G2=15.3」，可连写几个（逗号、分号隔开）。"""
+    """台账结论格开头的判定：「过 G2」「不过 G2=15.3」「读数 G4=80」（只挂数、不判），可连写几个（逗号、分号隔开）。"""
     s, out = clean(text), []
     while True:
         m = JUDGE_LEDGER.match(s)
@@ -392,7 +392,7 @@ def parse_conditions(charter):
 
 
 def journal_judgments(entries):
-    """journal「结果」条目（旧格式没有类别的也算）里以「G3 过 …」或「过 G3 …」开头的行。"""
+    """journal「结果」条目（旧格式没有类别的也算）里以「G3 过 …」「过 G3 …」「G4 读数 80 …」开头的行。"""
     out = []
     for e in entries:
         cat = e["category"]
@@ -418,10 +418,11 @@ def settle(items, judgments):
     for c in items:
         js = sorted(by.get(c["id"], []), key=lambda j: j["date"] or "0000")  # 稳定排序：同日按出现先后
         c["judgments"] = js
-        if not c["line_set"] and not c["retired"]:  # 线没定：过 / 不过不算数，只留读数（lint 提示作者）
+        if not c["line_set"] and not c["retired"]:  # 线没定：过 / 不过不算数，只留读数（lint 提示作者改写）
             for j in js:
-                j.setdefault("claimed", j["verdict"])
-                j["verdict"] = "读数"
+                if j["verdict"] != "读数":
+                    j.setdefault("claimed", j["verdict"])
+                    j["verdict"] = "读数"
         c["latest"] = js[-1] if js else None
         vals = [j for j in js if j["value"] is not None]
         if vals and c["direction"]:
@@ -447,10 +448,9 @@ def settle(items, judgments):
             c["status"] = "不再适用"
         elif not c["line_set"]:
             c["status"] = "线未定"
-        elif not js:
-            c["status"] = "未测"
-        else:
-            c["status"] = js[-1]["verdict"]
+        else:  # 「读数」不改状态：按最近一次过 / 不过，没有就是未测
+            vs = [j for j in js if j["verdict"] != "读数"]
+            c["status"] = vs[-1]["verdict"] if vs else "未测"
     return [j for j in judgments if j["cid"] not in {c["id"] for c in items}]
 
 

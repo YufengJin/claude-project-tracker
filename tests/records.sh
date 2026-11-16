@@ -27,7 +27,7 @@ LONG=$(python3 -c "print('很长的读数' * 300)")
 cat >> "$R/experiments.md" <<EOF
 | E1 | H1 | 平面拟合 24 站 | 高度 p95 15.3 mm | run1 | 不过 G2=15.3，过 G1=1.8；不成立 | out/e1 |
 | E2 | H2 | 换打分 | 2.5 mm（严格分 7.5） | run2 | 不过 G1=2.5 | out/e2 |
-| ID-TOPK | H2 | 身份 top-k | G_5 +7.50 | run3 | 未定 | out/id |
+| ID-TOPK | H2 | 身份 top-k | G_5 +7.50 | run3 | 读数 G2=12；未定 | out/id |
 | M1 | Q2 | 只挂问题的测量 | 筐面 sd 10–25 mm | run4 | 测量 | out/m1 |
 | E3 | H5 | 长行 | $LONG | run5 | 过 G9 | out/e3 |
 EOF
@@ -44,7 +44,7 @@ g = """- G1 作业级 p95 不超过 2 mm | 线: ≤2 mm | 尺: verifier 指标 |
 s = re.sub(r"(## 完成标准\n)(.*?)(\n## )", lambda m: m.group(1) + g + m.group(3), s, count=1, flags=re.S)
 open(p, "w", encoding="utf-8").write(s)
 PY
-printf '\n## [2026-11-10] 结果 | G3 | 用户试过手感\nG3 过 E1（用户 11-10 原话「可以」）\nG4 不过 80 ms 台架实测\n' >> "$R/journal.md"
+printf '\n## [2026-11-10] 结果 | G3 | 用户试过手感\nG3 过 E1（用户 11-10 原话「可以」）\nG4 不过 80 ms 台架实测\nG4 读数 60 E2 复测\n' >> "$R/journal.md"
 printf '\n## ADR-0002: 改目标（2026-11-09）\nStatus: 采纳\n正文\n' >> "$R/decisions.md"
 bash "$PT" index rr "立了几个节点" >/dev/null
 # 工程项目 ee：月归档里的旧条目、journal 里的旧格式条目、有卡的结果条目、补记（原始记录指回旧条目）、没卡的新结果条目
@@ -139,7 +139,8 @@ echo "# 条件"
 out=$(bash "$PT" conditions rr)
 check "状态只从点名的判定算：最近 不过、最好 1.8" 'grep -q "^G1 \[不过\] 作业级" <<<"$out" && grep -q "线 ≤2 mm；最近 不过 2.5（E2，.*）；最好 过 1.8（E1，" <<<"$out"'
 check "数值判定、journal 判定、线未定、不再适用、写不成格式" 'grep -q "^G2 \[不过\]" <<<"$out" && grep -q "^G3 \[过\] 用户手感 OK" <<<"$out" && grep -q "最近 过（E1，2026-11-10）" <<<"$out" && grep -q "^G4 \[线未定\]" <<<"$out" && grep -q "^G5 \[不再适用\]" <<<"$out" && grep -q "^G6 \[线未定\]" <<<"$out" && grep -q "（格式：缺「线:」" <<<"$out"'
-check "推荐线：原样显示，对推荐线差多少标明是推荐线，状态仍线未定；线没定写的不过只当读数" 'grep -q "线 待用户定，推荐 ≤50 ms；最近 读数 80（J261110-1，2026-11-10）；对推荐线差 30（推荐线，不是定了的线）" <<<"$out"'
+check "推荐线：原样显示，对推荐线差多少标明是推荐线，状态仍线未定；线没定写的不过只当读数" 'grep -q "线 待用户定，推荐 ≤50 ms；最近 读数 60（E2，2026-11-10）；对推荐线差 10（推荐线，不是定了的线）" <<<"$out"'
+check "中性写法「读数 G2=12」：挂数不判，状态仍按最近的过 / 不过" 'grep -q "^G2 \[不过\] 高度误差" <<<"$out" && grep -q "线 ≤10 mm；最近 读数 12（ID-TOPK，[0-9-]*）$" <<<"$out"'
 check "journal 判定带证据文字"                 'grep -q "2026-11-10 过 E1（journal.md:[0-9]*） E1（用户 11-10 原话「可以」）" <<<"$out"'
 check "点名了没登记的条件"                   'grep -q "点名了没登记的条件：G9" <<<"$out"'
 out=$(bash "$PT" conditions ee)
@@ -154,7 +155,7 @@ check "卡字段不齐"                           'grep -q "^rr: card-format: H4
 check "卡里的编号目录里没有"                 'grep -q "^rr: card-ref: H4 的卡引用了目录里没有的编号：E99" <<<"$out" && ! grep -q "card-ref: H1" <<<"$out"'
 check "数字溯源只作提示"                     'grep -q "^rr: card-number: 提示：H4 的卡里 99.9" <<<"$out" && ! grep -q "card-number: 提示：H1" <<<"$out"'
 check "条件行写不成格式、点名没登记的条件"   'grep -q "^rr: cond-format: 条件 G6" <<<"$out" && grep -q "^rr: cond-format: 判定点名了 G9" <<<"$out"'
-check "线没定的条件写了过 / 不过：提示只能记读数" 'grep -q "^rr: cond-format: 提示：G4 的线还没定，判定只能记读数（journal.md:[0-9]* 写了过 / 不过" <<<"$out" && ! grep -q "G1 的线还没定" <<<"$out"'
+check "线没定的条件写了过 / 不过：提示改写成读数（中性写法不报）" 'grep -q "^rr: cond-format: 提示：G4 的线还没定，改写成 读数 G4=值（journal.md:[0-9]* 写了过 / 不过" <<<"$out" && ! grep -q "G1 的线还没定\|G2 的线还没定" <<<"$out"'
 
 echo "# 旧接口：results / tree 取卡的「结论」行，简报定长"
 check "pt results 有卡的取卡的结论行"         'bash "$PT" results rr | grep -q " H1 refuted 假设一：钢件平面拟合 — 不成立，钢件平面不够 \[E1\]"'
@@ -171,8 +172,8 @@ check "生成三层：总览、两类项目页、节点页"   'grep -q "^site：
 P="$SITE/p/rr.html"; H="$SITE/p/rr"
 check "总览：判词色条、条件过 x/y、工程项目条件未登记" 'grep -q "class=\"bar\"" "$SITE/index.html" && grep -q "条件过 0/" "$SITE/index.html" && grep -q "条件未登记" "$SITE/index.html"'
 check "项目页：条件表（线未定不画差距、不再适用）" 'grep -q "<th>差多少</th>" "$P" && grep -q "id=\"cond-G4\"" "$P" && grep -q "线未定" "$P" && grep -q "不再适用" "$P" && grep -q "研究树图" "$P"'
-check "条件表：最好值离线差多少（按线的方向）" 'grep -q "<td data-l=\"差多少\">差 5.3</td>" "$P" && grep -q "<td data-l=\"差多少\">已到线</td>" "$P"'
-check "条件表：推荐线、对推荐线差、值列只写数、证据文字点进条目页" 'grep -q "待用户定，推荐 ≤50 ms" "$P" && grep -q "<td data-l=\"差多少\">对推荐线差 30</td>" "$P" && grep -q "<td data-l=\"最近\">2.5</td>" "$P" && ! grep -q "data-l=\"最近\">不过" "$P" && grep -q "class=\"evn\" href=\"rr/J261110-1.html\"[^>]*>（用户 11-10 原话「可以」）</a>" "$P" && [ -f "$H/J261110-1.html" ]'
+check "条件表：最好值离线差多少（按线的方向）" 'grep -q "<td data-l=\"差多少\">差 2</td>" "$P" && grep -q "<td data-l=\"差多少\">已到线</td>" "$P"'
+check "条件表：推荐线、对推荐线差、值列只写数、证据文字点进条目页" 'grep -q "待用户定，推荐 ≤50 ms" "$P" && grep -q "<td data-l=\"差多少\">对推荐线差 10</td>" "$P" && grep -q "<td data-l=\"最近\">2.5</td>" "$P" && ! grep -q "data-l=\"最近\">不过" "$P" && grep -q "class=\"evn\" href=\"rr/J261110-1.html\"[^>]*>（用户 11-10 原话「可以」）</a>" "$P" && [ -f "$H/J261110-1.html" ]'
 check "研究项目页：没卡的旧节点一行、问题分组顶上是问题卡" '! grep -q "class=\"ct\" href=\"rr/H2.html\"" "$P" && grep -q "<li data-s=\"已判\">.*假设二：旧节点没有卡" "$P" && grep -q "id=\"g-Q2\".*<dt>目的</dt><dd>看筐相对机器人" "$P"'
 EP="$SITE/p/ee.html"
 check "工程项目页：有卡的四行卡、没卡的标题加第一句、条目页" 'grep -q "<dt>结论</dt><dd>带宽够用，延迟还没达标。" "$EP" && grep -q "session 4</a> <small class=\"nid\">J261002-1</small>：Did: 量了延迟。 <span class=\"muted\">（已补卡 1 张）" "$EP" && ! grep -q "第二句不该出现" "$EP" && [ -f "$SITE/p/ee/J261112-1.html" ] && grep -q "<h2>条目原文</h2>" "$SITE/p/ee/J261112-1.html" && grep -q "后面的过程原文" "$SITE/p/ee/J261112-1.html" && grep -q "补记自：<a class=\"ref\" href=\"J261002-1.html\"" "$SITE/p/ee/J261002-2.html"'
