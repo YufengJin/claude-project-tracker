@@ -56,18 +56,18 @@ check "Workdir 带注释也能命中"          '[ "$(cd "$T/repoB" && bash "$PT"
 bash "$PT" index annot "收起" 已放弃 >/dev/null
 check "CLAUDE_PROJECT_DIR 优先于 PWD"  '[ "$(cd "$T/other" && CLAUDE_PROJECT_DIR="$T/repoB" bash "$PT" where)" = beta ]'
 
-echo "# brief（旧排版：state 不合格）"
+echo "# brief（state 不合格：同一套定长块，state 只取四类小节）"
 legacy_state alpha
 printf '\n## 2026-01-02 · session 2\nGoal: x\n\n## 2026-01-03 · session 3\nGoal: y\n\n## 2026-01-04 · session 4\nGoal: z\n' >> "$T/root/alpha/journal.md"
 printf '## ADR-0001: 用 X\nDate: 2026-01-02\nStatus: 采纳\n\n**背景**：secret-body\n' >> "$T/root/alpha/decisions.md"
 out=$(bash "$PT" brief alpha)
 check "brief 设 ACTIVE"                '[ "$(cat "$T/root/ACTIVE")" = alpha ]'
-check "brief 顺序 charter→state→journal→ADR→plan" 'python3 - "$out" <<PY
-import sys; s=sys.argv[1]; ks=["INDEX 行","charter.md","state.md","journal.md 最后 3 条","decisions.md 标题","= plan.md"]
+check "brief 顺序 INDEX→lint→state→条件→journal 标题→去哪找" 'python3 - "$out" <<PY
+import sys; s=sys.argv[1]; ks=["INDEX 行","= lint","= state.md（旧格式","= 条件","= journal 最近","= 去哪找"]
 idx=[s.find(k) for k in ks]; sys.exit(0 if all(i>=0 for i in idx) and idx==sorted(idx) else 1)
 PY'
-check "journal 只给最后 3 条"          'grep -q "^## .*session 2" <<<"$out" && ! grep -q "^## .*session 1" <<<"$out" && grep -q "本会话 session 号 = 5" <<<"$out"'
-check "ADR 只给标题"                   'grep -q "ADR-0001" <<<"$out" && ! grep -q "secret-body" <<<"$out"'
+check "工程项目：journal 只给最近的标题、不给正文" 'grep -q "^- J2026-01-04.1 \[旧格式\] session 4" <<<"$out" && ! grep -q "^Goal: z" <<<"$out"'
+check "ADR 正文不进简报"               '! grep -q "secret-body" <<<"$out" && grep -q "decisions.md（为何转向）" <<<"$out"'
 check "brief 不含其他项目"             '! grep -q "beta\|项目 B" <<<"$out"'
 check "本机项目 brief 不提 Host"        '! grep -q "^Host:.*那台机器" <<<"$out"'
 check "远程项目 brief 提示 Host"        'bash "$PT" brief gamma | grep -q "^Host: .*(host-far)"'
@@ -86,12 +86,8 @@ for i in range(400): print('续 %d：' % i + '证据' * 60)"
   printf 'Next: 倒数第二条的下一步\n\n## 2026-02-02 · session 3\nGoal: 最新的目标\nNext: 最新的下一步\n'; } >> "$T/root/big/journal.md"
 out=$(bash "$PT" brief big)
 check "超预算时简报不超过 8192 字节"     '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
-check "三条的标题都在"                 'grep -qF "## [$D] 决定 | 立项" <<<"$out" && grep -q "^## .*session 2" <<<"$out" && grep -q "^## .*session 3" <<<"$out"'
-check "最新一条完整、上一条留结尾"      'grep -q "^Goal: 最新的目标" <<<"$out" && grep -q "^Next: 最新的下一步" <<<"$out" && grep -q "^Next: 倒数第二条的下一步" <<<"$out" && grep -q "^续 399：" <<<"$out"'
-check "省掉的开头给出行号"             'grep -q "省略 journal.md 第 [0-9]*–[0-9]* 行" <<<"$out" && ! grep -q "^续 0：" <<<"$out" && ! grep -q "早先的目标" <<<"$out"'
+check "大 journal：只给标题、不给正文"   'grep -q "J2026-02-02.1 \[旧格式\] session 3" <<<"$out" && ! grep -q "^续 \|^Goal: " <<<"$out"'
 check "journal 原文没被动"             '[ "$(grep -c "^续 " "$T/root/big/journal.md")" = 400 ]'
-check "journal 预算可调小"               '[ "$(PT_BRIEF_JOURNAL_BYTES=1000 bash "$PT" brief big | grep -c "^续 ")" -lt "$(grep -c "^续 " <<<"$out")" ]'
-check "journal 给出原文路径与行数"       'grep -q "原文 $T/root/big/journal.md 共 [0-9]* 行" <<<"$out"'
 
 echo "# brief 的 8 KB 上限"
 bash "$PT" new fat "大 state" "$T/other/fat" >/dev/null; legacy_state fat
@@ -103,8 +99,8 @@ open(p, "w", encoding="utf-8").write(s)
 PYS
 out=$(bash "$PT" brief fat)
 check "大 state：简报不超过 8192 字节"   '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
-check "大 state：留一句话与下一步"        'grep -q "^## 一句话概括" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out" && ! grep -q "^- 细节 0：" <<<"$out"'
-check "大 state：省掉的节给出去处"        'grep -q "未展开 state.md 的节：.*进行中.*cat $T/root/fat/state.md" <<<"$out" && grep -q "简报上限 8192 字节" <<<"$out"'
+check "大 state：留一句话与下一步，进行中放不全给去处" 'grep -q "^## 一句话概括" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out" && grep -q "^- 细节 0：" <<<"$out" && ! grep -q "^- 细节 59：" <<<"$out" && grep -q "本节余下 [0-9]* 行未展开：cat $T/root/fat/state.md" <<<"$out"'
+check "大 state：其余小节给出去处"        'grep -q "其余小节未展开：.*已完成.*cat $T/root/fat/state.md" <<<"$out"'
 python3 - "$T/root/fat/state.md" "$T/root/fat/decisions.md" <<'PYS'
 import sys; p, d = sys.argv[1], sys.argv[2]; s = open(p, encoding="utf-8").read()
 s = s.replace("## 快速启动", "## 研究树\n焦点 H7：焦点写在这里\n\n## 资产\n" + "".join("- 资产 %d：" % i + "路径" * 60 + "\n" for i in range(40)) + "\n## 快速启动")
@@ -113,11 +109,11 @@ open(d, "a", encoding="utf-8").write("".join("\n## ADR-%04d: 决策 %d " % (i, i
 PYS
 out=$(bash "$PT" brief fat)
 check "焦点类小节（研究树）先占预算"        '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ] && grep -q "^焦点 H7：焦点写在这里" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out"'
-check "放不全的小节留前几行再给去处"        'grep -q "^- 资产 0：" <<<"$out" && ! grep -q "^- 资产 39：" <<<"$out" && grep -q "本节余下 [0-9]* 行.*cat $T/root/fat/state.md" <<<"$out"'
-check "ADR 超限只留最近 5 条"               'grep -q "^## ADR-0008" <<<"$out" && grep -q "^## ADR-0004" <<<"$out" && ! grep -q "^## ADR-0003" <<<"$out" && grep -q "共 9 条，只列最近 5 条" <<<"$out"'
+check "焦点类小节有了，进行中与资产只给去处"  '! grep -q "^- 资产 0：\|^- 细节 0：" <<<"$out" && grep -q "其余小节未展开：资产、.*进行中" <<<"$out"'
+check "ADR 不进简报"                        '! grep -q "^## ADR-0008" <<<"$out"'
 check "没超上限的简报不提上限"            '! bash "$PT" brief alpha | grep -q "简报上限"'
 out=$(bash "$PT" brief alpha)
-check "没超预算的 journal 原样打印"     '! grep -q "省略 journal.md" <<<"$out" && grep -q "^Goal: x" <<<"$out"'
+check "journal 正文不进简报"             '! grep -q "^Goal: x" <<<"$out"'
 
 echo "# 会话绑定与压缩"
 CLAUDE_CODE_SESSION_ID=sess-1 bash "$PT" brief alpha >/dev/null
@@ -253,11 +249,11 @@ top=re.findall(r"<nav><ul>(.*)</ul></nav>",s,re.S)[0]
 sys.exit(0 if all(f"data-id=\"{i}\"" in nav for i in ["Q1","Q2","H4","H6","H7"]) else 1)
 PY'
 out=$(bash "$PT" brief rs)
-check "brief 用研究树替代台账末行"       'grep -q "===== 研究树" <<<"$out" && grep -q "^- H2 假设二 在做" <<<"$out" && ! grep -q "experiments.md 末 15 行" <<<"$out"'
-check "未冻结的考官卡全文打印"           'grep -q "^## 数据与暴露史" <<<"$out"'
+check "brief 给前沿、不给台账末行"       'grep -q "===== 前沿" <<<"$out" && grep -q "^- H2 \[在做\] 假设二" <<<"$out" && ! grep -q "experiments.md 末 15 行" <<<"$out"'
+check "考官卡只给指针"                   'grep -q "verifier.md（考官）" <<<"$out" && ! grep -q "^## 数据与暴露史" <<<"$out"'
 sed -i "s/^Updated: .*/Updated: $D   Status: 已冻结（用户确认；改考官走 ADR）/" "$R/verifier.md"
 out=$(bash "$PT" brief rs)
-check "冻结考官只打印状态行 + 两节"      'grep -q "Status: 已冻结" <<<"$out" && grep -q "^## 指标与聚合定义" <<<"$out" && grep -q "^## 判定依据" <<<"$out" && ! grep -q "^## 数据与暴露史" <<<"$out" && grep -q "其余节读原文" <<<"$out"'
+check "冻结后考官卡也只给指针"            'grep -q "verifier.md（考官）" <<<"$out" && ! grep -q "^## 判定依据" <<<"$out"'
 printf 'build/\n' > "$R/.ignore"; rm -f "$R/.gitattributes"; git -C "$R" add -A >/dev/null; git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm "改 ignore"
 bash "$PT" index rs "研究树就位" >/dev/null; bash "$PT" index rs "研究树就位二" >/dev/null
 check "index 补 .ignore / .gitattributes：保留原内容、只补一次、随提交" '[ "$(cat "$R/.ignore")" = "$(printf "build/\ntree.html")" ] && [ "$(cat "$R/.gitattributes")" = "tree.html -diff" ] && [ -z "$(git -C "$R" status --porcelain)" ]'
@@ -268,7 +264,7 @@ chmod 000 "$R/tree"   # tree/ 读不了：tree.py 整个失败
 out=$(bash "$PT" index rs "渲染坏了" 2>&1); rc=$?
 chmod 755 "$R/tree"
 check "渲染失败只告警，照常提交"         '[ $rc -eq 0 ] && grep -q "tree.html 没渲染成" <<<"$out" && git -C "$R" log -1 --format=%s | grep -q "渲染坏了"'
-check "没有研究树的项目 tree 报错、brief 照旧" '! bash "$PT" tree alpha 2>/dev/null && ! bash "$PT" brief alpha | grep -q "===== 研究树"'
+check "没有研究树的项目 tree 报错、brief 没有前沿" '! bash "$PT" tree alpha 2>/dev/null && ! bash "$PT" brief alpha | grep -q "===== 前沿"'
 
 echo "# 研究树回归（坏输入、注入、冲突）"
 TP="$(dirname "$PT")/tree.py"
@@ -369,7 +365,7 @@ check "M1 INDEX 状态列按括号前的状态值算" 'bash "$PT" list --no-sync
 check "M1 precompact 命中带注的进行中项目" '(cd "$T/rbw" && bash "$PT" precompact </dev/null) | grep -q "项目 rb"'
 # M2 考官卡「未冻结」不算冻结
 sed -i "s/^Updated: .*/Updated: $D   Status: 未冻结（等用户）/" "$B/verifier.md"
-check "M2 未冻结的考官卡全文打印"        'bash "$PT" brief rb | grep -q "^## 数据与暴露史"'
+check "M2 未冻结的考官卡：简报只给指针"   'o=$(bash "$PT" brief rb); grep -q "verifier.md（考官）" <<<"$o" && ! grep -q "^## 数据与暴露史" <<<"$o"'
 # M3 渲染用唯一临时文件、不留残留
 for k in 1 2 3 4 5 6; do python3 "$TP" "$B" --render >/dev/null 2>"$T/race.$k" & done; wait
 check "M3 并发渲染都成功、无临时文件残留" '! grep -q . "$T"/race.* && [ -z "$(ls -A "$B" | grep tmp)" ] && [ -r "$B/tree.html" ] && [ "$(stat -c %a "$B/tree.html")" != 600 ]'
@@ -661,7 +657,7 @@ check "本机 Workdir 不存在"                     'grep -q "^gone: workdir-mi
 check "没有焦点也没有下一步"                    'grep -q "^fresh: no-focus: " <<<"$out" && ! grep -q "^big: no-focus" <<<"$out"'
 check "根节点认识加教训超 6 KB"                 'grep -q "^big: tree-root-size: 根 Q1 .*6.8 KB" <<<"$out"'
 check "单节点超 5 KB"                           'grep -q "^big: tree-node-size: 节点 H2 5.9 KB" <<<"$out" && [ "$(grep -c "^big: tree-node-size" <<<"$out")" = 2 ]'
-check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2，state-format [0-9]*，tree-know 1，journal-entry 1，status 0，plan-template [0-9]*，status-tree 0，idle 0，plan-open 0$"'
+check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2，state-format [0-9]*，tree-know 1，journal-entry 1，status 0，plan-template [0-9]*，status-tree 0，idle 0，plan-open 0，card-missing [0-9]*，card-format 0，card-ref 0，card-number 0，cond-format 0$"'
 check "单个 slug 只查它、不给计数"              'o=$(lt good fresh); grep -q "^fresh:" <<<"$o" && ! grep -q "^共 " <<<"$o"'
 check "未知 slug 也退出 0"                      'lt nope >/dev/null; [ $? -eq 0 ]'
 check "lint 不改任何文件、不提交"               '[ "$(find "$LR" -type f -not -path "*/.git/*" -exec md5sum {} + | sort | md5sum)" = "$sum0" ] && [ -z "$(for p in "$LR"/*/; do git -C "$p" status --porcelain; done)" ]'
@@ -720,24 +716,24 @@ for i in 1 2 3 4 5; do printf '\n## ADR-%04d: 决定 %d\nStatus: 采纳\n**背�
 echo "secret-charter-body" >> "$SR/charter.md"; echo "secret-verifier-body" >> "$SR/verifier.md"
 out=$(bash "$PT" brief rsn); printf '%s\n' "$out" > "$T/snap-brief.txt"
 check "合格 state 走新排版、块的顺序对" 'python3 - "$out" <<PY
-import sys; s=sys.argv[1]; ks=["INDEX 行","lint 告警","= state.md","焦点链的当前认识","前沿","journal 最近 8 条标题","最近 3 条 ADR","要找什么去哪"]
+import sys; s=sys.argv[1]; ks=["INDEX 行","= lint","= state.md","焦点问题的当前认识","= 条件","最近有结论","= 前沿","= 去哪找"]
 idx=[s.find(k) for k in ks]; sys.exit(0 if all(i>=0 for i in idx) and idx==sorted(idx) else 1)
 PY'
 check "state 全文在"                    'grep -q "^- 别再试 X" <<<"$out" && grep -q "^- \[进行中\] 跑 E2" <<<"$out" && grep -q "^make test" <<<"$out"'
 check "焦点链：根与 Q3 的当前认识，不含已关 / 搁置 / 链外的" 'grep -q "^- 根认识-甲" <<<"$out" && grep -q "^- 子认识-丁" <<<"$out" && ! grep -q "旁支认识-戊\|搁置认识-己\|根约束-乙" <<<"$out"'
-check "前沿只列 active / open 标题"     'grep -q "^- H4 \[active\] 假设四（Q3 下）" <<<"$out" && grep -q "^- H5 \[open\] 假设五" <<<"$out" && ! grep -q "^- Q6 " <<<"$out" && ! grep -q "^- Q7 " <<<"$out"'
-check "journal 只给最近 8 条标题、跳过运维、无正文" '[ "$(grep -c "^## \[2026-01-.*\] 结果 | H4" <<<"$out")" = 8 ] && ! grep -q "第 1 条\|运维 | 磁盘\|正文-9" <<<"$out" && grep -q "^## \[2026-01-09\] 结果 | H4 | 第 9 条" <<<"$out"'
-check "ADR 只给最近 3 条标题"           'grep -q "^## ADR-0005" <<<"$out" && grep -q "^## ADR-0003" <<<"$out" && ! grep -q "^## ADR-0002" <<<"$out" && ! grep -q "adr-body\|ADR-0001: <决策标题>" <<<"$out"'
-check "charter / 考官卡正文只给指针"    '! grep -q "secret-charter-body\|secret-verifier-body" <<<"$out" && grep -q "| 考官（拿什么判对错） | $SR/verifier.md |" <<<"$out" && grep -q "| 数字、读数 | 台账 $SR/experiments.md" <<<"$out" && grep -q "| 现在信什么 |" <<<"$out" && grep -q "| 为何转向 |" <<<"$out" && grep -q "| 某条分支为何关 |" <<<"$out"'
+check "前沿：计数加 active / open 标题"  'grep -q "^计数：" <<<"$out" && grep -q "^- H4 \[在做\] 假设四（Q3 下）" <<<"$out" && grep -q "^- H5 \[待做\] 假设五" <<<"$out" && ! sed -n "/= 前沿/,/= 去哪找/p" <<<"$out" | grep -q "^- Q6 \[\|^- Q7 \["'
+check "最近有结论：已关的 Q6 一行，没写卡标（摘）" 'grep -q "^- Q6 \[已答\] .* 旁支问题 — （摘）答完。" <<<"$out"'
+check "journal 与 ADR 正文、标题都不进研究项目简报" '! grep -q "第 9 条\|正文-9\|adr-body\|ADR-0001: <决策标题>" <<<"$out" && grep -q "journal 新条目：## \[YYYY-MM-DD\]" <<<"$out"'
+check "charter / 考官卡正文只给指针"    '! grep -q "secret-charter-body\|secret-verifier-body" <<<"$out" && grep -q "verifier.md（考官）" <<<"$out" && grep -q "experiments.md（读数只在这里）" <<<"$out" && grep -q "decisions.md（为何转向）" <<<"$out" && grep -q "pt get rsn <编号>" <<<"$out" && grep -q "pt find rsn <词>" <<<"$out"'
 check "lint 告警块（state 落后 journal）" 'grep -q "^state-stale: " <<<"$out"'
 check "新简报不超过 8192 字节"          '[ "$(wc -c < "$T/snap-brief.txt")" -le 8192 ]'
-check "工程项目：模板 plan 不进简报，lint 报出" 'o=$(bash "$PT" brief eng); grep -q "^plan-template: " <<<"$o" && ! grep -q "| 计划清单 |" <<<"$o" && ! grep -q "^- \[ \] <步骤>" <<<"$o"'
-check "填过的 plan 进指针表"            'bash "$PT" brief eng2 | grep -q "| 计划清单 | $T/snap/eng2/plan.md |"'
+check "工程项目：模板 plan 不进简报，lint 报出" 'o=$(bash "$PT" brief eng); grep -q "^plan-template: " <<<"$o" && ! grep -q "plan.md（计划）" <<<"$o" && ! grep -q "^- \[ \] <步骤>" <<<"$o"'
+check "填过的 plan 进指针表"            'bash "$PT" brief eng2 | grep -q "plan.md（计划）"'
 python3 -c "print('## 当前认识\n' + ''.join('- 长认识 %d：' % i + '证据' * 100 + '\n' for i in range(60)))" >> "$SR/tree/Q3.md"
 for i in $(seq 10 70); do printf '\n## [2026-01-%02d] 结果 | H4 | %s\n' "$((i % 28 + 1))" "$(printf '长标题%.0s' $(seq 1 30))" >> "$SR/journal.md"; done
 out=$(bash "$PT" brief rsn); n=$(printf '%s\n' "$out" | wc -c)
-check "当前认识很大时仍不超过 8192 字节，截掉的给去处" '[ "$n" -le 8192 ] && grep -q "^- 长认识 0：" <<<"$out" && grep -q "余下 [0-9]* 行未展开；全文：pt tree rsn" <<<"$out" && grep -q "^- \[进行中\] 跑 E2" <<<"$out" && grep -q "要找什么去哪" <<<"$out"'
-check "不合格（多一节）就退回旧排版"    'printf "\n## 已完成\n- x\n" >> "$SR/state.md"; o=$(bash "$PT" brief rsn); grep -q "===== charter.md" <<<"$o" && ! grep -q "要找什么去哪" <<<"$o"'
+check "当前认识很大时仍不超过 8192 字节，按条放、余下给 pt get" '[ "$n" -le 8192 ] && grep -q "^- 长认识 0：" <<<"$out" && grep -q "Q3 余下 [0-9]* 条：pt get rsn Q3" <<<"$out" && grep -q "^- \[进行中\] 跑 E2" <<<"$out" && grep -q "= 去哪找" <<<"$out"'
+check "不合格（多一节）：同样的块，state 只取四类小节" 'printf "\n## 已完成\n- x\n" >> "$SR/state.md"; o=$(bash "$PT" brief rsn); grep -q "= state.md（旧格式" <<<"$o" && grep -q "其余小节未展开：.*已完成" <<<"$o" && grep -q "^跑 H4 的 E2。" <<<"$o" && grep -q "选 A 还是 B" <<<"$o"'
 
 echo "# 快照层：pt tree 打焦点链的当前认识"
 sed -i '/^## 已完成$/,$d' "$SR/state.md"

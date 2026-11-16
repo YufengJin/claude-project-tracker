@@ -12,6 +12,9 @@
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
 #   pt.sh lint [<slug> ... | --all]            档案体检：只读、只报告（<slug>: <检查名>: <一句话>），退出码恒为 0；默认 ACTIVE
 #   pt.sh results <slug> [--all]               得到了什么：当前认识第 1 条、已关节点按日期倒序、未关节点的台账行（工程项目：plan 已勾项与已推送）
+#   pt.sh get <slug> <编号> [--page N]         取单条（节点的卡、挂着的台账行、指针；台账行、ADR、G 条件、journal 条目）；每页 ≤3 KB
+#   pt.sh find <slug> <词> [词 ...]            在目录 <slug>/index.tsv（程序生成，一行一条）里找，各词都要出现
+#   pt.sh conditions <slug>                    条件与状态：charter「完成标准」的 G 行，状态从点名它的判定里算
 #   pt.sh journal-archive <slug>               journal.md 超过 100 KB 时把上月之前的整月条目原样搬到 archive/journal-YYYY-MM.md 并提交
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
@@ -297,9 +300,9 @@ cmd_brief() {
   local -A FULL=() CUR=() PTR=()
   local K="charter state verifier tree journal adr plan" k old t tw="" jh="" START="" TOTAL jb=0 foot capped=""
   local idx; idx="$(section "INDEX 行"; grep -F "| $SLUG |" "$ROOT/INDEX.md" || echo "(INDEX 中没有此 slug)")"
-  # state 是固定小节（合格）：新排版；不合格的（或 brief.py 出错）照 0.6.10 原样
+  # 各块定长的简报（brief.py）；没有 python3 或 brief.py 出错才退回 0.6.10 的排版
   local body=""
-  if command -v python3 >/dev/null && python3 "$HERE/brief.py" --check "$DIR/state.md" 2>/dev/null && foot="$(brief_foot)" &&
+  if command -v python3 >/dev/null && foot="$(brief_foot)" &&
      body="$(python3 "$HERE/brief.py" --root "$ROOT" --slug "$SLUG" --host "$THIS_HOST" --templates "$TPL" \
        --state-max-bytes "$STATE_MAX_BYTES" --state-max-lines "$STATE_MAX_LINES" \
        --budget $((BRIEF_MAX_BYTES - $(nbytes "$head") - $(nbytes "$idx") - $(nbytes "$foot") - 3)))"; then
@@ -491,6 +494,15 @@ cmd_results() {
   python3 "$HERE/results.py" "$ROOT/$SLUG" "$@"
 }
 
+# get / find / conditions：按锚点取档案（query.py，数据来自 records.py）
+cmd_query() {
+  local c="$1" SLUG="${2:-}"; [ -n "$SLUG" ] || die "用法: pt.sh $c <slug> …"
+  [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
+  shift 2
+  command -v python3 >/dev/null || die "pt $c 要 python3"
+  python3 "$HERE/query.py" "$c" "$ROOT/$SLUG" "$@"
+}
+
 cmd_tree() {
   local SLUG="${1:-}"; [ -n "$SLUG" ] || die "用法: pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]"
   [[ "$SLUG" =~ $SLUG_RE ]] && [ -f "$ROOT/$SLUG/charter.md" ] || die "项目不存在: $SLUG"
@@ -650,6 +662,8 @@ cmd_index() {
     [ -n "$(git -C "$ROOT/$SLUG" ls-files -u -- tree.html 2>/dev/null)" ] && git -C "$ROOT/$SLUG" add tree.html
   fi
   commit_all "$ROOT/$SLUG" "checkpoint @$THIS_HOST: $SUMMARY" || die "git 提交失败: $ROOT/$SLUG"
+  # 目录 index.tsv 是生成物（不进提交）：提交后重算，日期取 git
+  python3 "$HERE/query.py" index "$ROOT/$SLUG" >/dev/null 2>&1 || echo "[warn] index.tsv 没重算成：pt.sh find $SLUG <词> 时会再算"
   render_index
   [ -d "$ROOT/$SLUG/tree" ] && render_monitor
   echo "[project-tracker] 已提交: $SLUG | $(field "$SLUG" Status) | $TODAY | $SUMMARY"
@@ -747,6 +761,7 @@ case "${1:-}" in
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   results)  shift; cmd_results "$@" ;;
+  get|find|conditions) cmd_query "$@" ;;
   lint)     shift; cmd_lint "$@" ;;
   journal-archive) shift; cmd_journal_archive "$@" ;;
   migrate)  cmd_migrate ;;
@@ -756,5 +771,5 @@ case "${1:-}" in
   sync|dispatch|runs)
             is_hub || { off_root_note; die "这台机器不是中心机（没有 $ROOT/FLEET，或档案根不是默认位置）"; }
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,24p' "$0"; exit 1 ;;
+  *)        sed -n '2,27p' "$0"; exit 1 ;;
 esac

@@ -5,7 +5,7 @@
 
 有 verifier.md 的先给「考官与门槛」：标题含门槛/指标/主分的小节摘几行（共 ≤600 字节，提到门槛/过线/放行/硬门/主分的行先保），
 不解析数值、不判过没过；摘不到给一行指针。
-研究项目：「当前认识」第 1 条 → 已关节点按日期倒序（日期 ID verdict 标题 — 结论首句 [台账 id]；日期取结论首句里写的，
+研究项目：「当前认识」第 1 条 → 已关节点按日期倒序（日期 ID verdict 标题 — 卡的「结论」行，没有短卡取结论首句 [台账 id]；日期取其中写的，
 没写取入档日期，即这个节点在 git 里变成 closed 的那次提交）→ 挂在未关节点上的台账行（读数列与结论列都给、各带列名；
 这一行的格数与表头对不上时按列名取不准，原样给整行）。
 工程项目：state「当前认识」第 1 条 → plan 已勾项 → state「线程」里的 [已推送 <commit>]。
@@ -111,7 +111,7 @@ def data(d, ref=None):
         filed = progress.closed_dates(d, ids)
         for i in ids:
             n = t.nodes[i]
-            first = tree.first_sentence(tree.section(n, "结论"))
+            first = tree.headline(n)  # 有短卡取卡的「结论」行，没有取结论首句
             fd = dt.date.fromisoformat(filed[i]) if filed.get(i) else None
             said = [x for x in lint.dates_in(first, fd or ref) if x <= (fd or ref) + dt.timedelta(days=1)]
             if said:

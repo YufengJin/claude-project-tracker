@@ -200,6 +200,37 @@ def first_sentence(text):
     return t[:160] + ("…" if len(t) > 160 else "")
 
 
+CARD_LABELS = ("目的", "怎么做", "结果", "结论")
+CARD_LINE = re.compile(r"^\s*(?:[-*+]\s+)?\**(目的|怎么做|结果|结论)\**\s*[：:]\s*(.*)$")
+
+
+def card(node):
+    """短卡：「## 结论」第一段以「目的：」开头时，这一段就是卡。返回 {标签: 文本}（按出现顺序，续行并进上一项）；没有卡给 None。"""
+    lines = [ln for ln in first_para(section(node, "结论")).split("\n") if ln.strip()]
+    m = CARD_LINE.match(lines[0]) if lines else None
+    if not m or m.group(1) != "目的":
+        return None
+    out, cur = {}, None
+    for ln in lines:
+        m = CARD_LINE.match(ln)
+        if m and m.group(1) not in out:
+            cur = m.group(1)
+            out[cur] = m.group(2)
+        elif cur:
+            out[cur] += " " + ln.strip()
+    return {k: " ".join(v.replace("**", "").split()) for k, v in out.items()}
+
+
+def headline(node):
+    """一句话结论：有卡取卡的「结论」（问题节点取「结果」），没有卡取「## 结论」首句（旧档案照旧）。"""
+    c = card(node)
+    if c:
+        t = c.get("结论") or c.get("结果") or ""
+        if t:
+            return t[:160] + ("…" if len(t) > 160 else "")
+    return first_sentence(section(node, "结论"))
+
+
 def split_row(line):
     """按未转义的竖线切一行表格；单元格保留原样（含 \\|）。"""
     s = line.strip()
@@ -301,7 +332,7 @@ def parse_ledger(path):
                 if cur["node_col"] is not None and cur["node_col"] < len(cells):
                     nodes = node_cells(cells[cur["node_col"]])
                 rid = cells[cur["id_col"]] if cur["id_col"] < len(cells) else ""
-                rows.append({"table": cur, "cells": cells, "line": ln.rstrip(), "nodes": nodes,
+                rows.append({"table": cur, "cells": cells, "line": ln.rstrip(), "no": no, "nodes": nodes,
                              "id": re.sub(r"[*`]", "", rid).strip()})
         else:
             cur = None
@@ -647,7 +678,7 @@ def text_default(t, show_all, roots_only=False):
         for i in closed:
             n = t.nodes[i]
             by = f" → {','.join(n['by'])}" if n["by"] else ""
-            o.append(f"- {i} [{n['verdict'] or '?'}{by}] {n['title']} —— {first_sentence(section(n, '结论')) or '(无结论)'}")
+            o.append(f"- {i} [{n['verdict'] or '?'}{by}] {n['title']} —— {headline(n) or '(无结论)'}")
     else:
         nc = sum(1 for n in t.nodes.values() if n["status"] == "closed")
         if nc:
@@ -914,7 +945,7 @@ def tree_ul(t, tops):
             caret = '<button class="caret" aria-label="折叠"></button>' if kids else '<span class="caret none"></span>'
             cs = ""
             if n["status"] == "closed":
-                fs = first_sentence(section(n, "结论"))
+                fs = headline(n)
                 cs = (f'<div class=cs title="{esc(fs)}"><span class="b v-{v or "unknown"}">{esc(n["verdict"] or "?")}</span> '
                       f'{esc(fs.replace("**", "")) or "(无结论)"}</div>')
             out.append(f'<li data-id="{esc(i)}" data-status="{s if s != "unknown" else "other"}">{caret}'
@@ -948,7 +979,7 @@ def graph_data(t):
         s, v = st_cls(n)
         near = {i, n["parent"], *t.children[i]}
         refs = sorted({x for x in REF_RE.findall(strip_comments(n["body"])) if x in t.nodes and x not in near}, key=id_key)
-        c = first_sentence(section(n, "结论")).replace("**", "") if n["status"] == "closed" else ""
+        c = headline(n).replace("**", "") if n["status"] == "closed" else ""
         nodes.append({"i": i, "t": n["title"][:300], "c": c, "p": p, "s": s, "v": v, "S": n["status"][:40], "V": n["verdict"][:40],
                       "n": len(t.rows_of[i]), "b": [b for b in n["by"] if b in t.nodes and b != i], "r": refs})
     doc = json.dumps({"slug": t.slug, "nodes": nodes}, ensure_ascii=False, separators=(",", ":"))
@@ -1349,7 +1380,7 @@ def render_html(t):
             a.append(" · 子 " + " ".join(f'<a class=ref href="#{esc(c)}">{esc(c)}</a>' for c in kids))
         a.append(f" · <code>tree/{esc(i)}.md</code></div>")
         if n["status"] == "closed":
-            fs = first_sentence(section(n, "结论"))
+            fs = headline(n)
             a.append(f'<p class=cs1>{badge(n)} {inline(fs, t) if fs else "(无结论)"}</p>')
         for h, b in n["sections"]:
             body.append(f"<h3>{inline(h, t)}</h3>{md(b, t)}")

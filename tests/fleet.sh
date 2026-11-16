@@ -234,7 +234,7 @@ out=$(hpt journal-archive pj)
 check "中心搬 journal 并提交"            '[ -f "$H/pj/archive/journal-2025-08.md" ] && [ -f "$H/pj/archive/journal-2025-09.md" ] && [ -z "$(git -C "$H/pj" status --porcelain)" ]'
 out=$(hpt sync -q)
 check "推到节点：快进、不分叉"            'grep -q "pj: ↑ 推送到 a" <<<"$out" && ! grep -q "分叉" <<<"$out" && [ ! -f "$H/.fleet/forked/pj" ] && [ "$(head_of "$NA/pj")" = "$(head_of "$H/pj")" ] && [ -z "$(git -C "$NA/pj" status --porcelain)" ]'
-check "节点上的归档与中心逐字一致"        'diff -r -x .git "$H/pj" "$NA/pj" >/dev/null'
+check "节点上的归档与中心逐字一致（index.tsv 是本机生成物，不同步）" 'diff -r -x .git -x index.tsv "$H/pj" "$NA/pj" >/dev/null'
 printf '\n## [%s] 决定 | t | 节点在归档后接着写\n继续\n' "$(date +%F)" >> "$NA/pj/journal.md"
 npt a index pj "归档后节点进展" >/dev/null
 out=$(hpt sync -q)

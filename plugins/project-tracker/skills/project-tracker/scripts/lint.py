@@ -19,7 +19,8 @@ import progress  # noqa: E402  最近活动、进度与 pt list 同一套
 CHECKS = ("state-stale", "pending-stale", "template", "journal-size", "state-size",
           "host", "workdir-missing", "no-focus", "tree-root-size", "tree-node-size",
           "state-format", "tree-know", "journal-entry", "status", "plan-template",
-          "status-tree", "idle", "plan-open")
+          "status-tree", "idle", "plan-open",
+          "card-missing", "card-format", "card-ref", "card-number", "cond-format")
 STATE_LAG_DAYS = 2          # state 的 Updated 比 journal 最新条目早这么多天及以上
 PENDING_DAYS = 7            # 待拍板 / 等用户 里的日期超过这么多天
 JOURNAL_MAX = 100 * 1024
@@ -159,7 +160,58 @@ def template_placeholders(tpl_dir):
     return out
 
 
-def lint_one(slug, d, ctx):
+NUM_TOKEN = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w])")
+
+
+def nums(text):
+    """两位数及以上的数（7.50 与 7.5 算同一个）。"""
+    import records
+    return {records.norm_num(x) for x in NUM_TOKEN.findall(text) if sum(ch.isdigit() for ch in x) >= 2}
+
+
+def card_checks(rec, add):
+    """短卡与条件行（只报不拦）：已关节点没有卡；卡的字段不齐或超长；卡里的编号在目录里找不到；
+    卡里的数在本节点原文与它的台账行里找不到（只作提示：派生数会误报）；条件行写不成格式、判定点名了没登记的条件。"""
+    import records
+    nodes = rec["nodes"]
+    miss = [n for n in nodes.values() if n["status"] == "closed" and n["card_src"] != "card"]
+    if miss:
+        miss.sort(key=lambda n: (n["date"] or "9999", tree.id_key(n["id"])), reverse=True)
+        add("card-missing", f"已关节点 {len(miss)} 个没有短卡（最近关的：{'、'.join(n['id'] for n in miss[:5])}）："
+                            "关节点时在「## 结论」第一段写 目的：/怎么做：/结果：/结论：（问题节点 目的：/结果：）")
+    t = rec["tree"]
+    for i in sorted(nodes, key=tree.id_key):
+        n = nodes[i]
+        if n["card_src"] != "card":
+            continue
+        need = ("目的", "结果") if n["kind"] == "Q" else tree.CARD_LABELS
+        lack = [k for k in need if not n["card"].get(k)]
+        para = tree.first_para(tree.section(t.nodes[i], "结论"))
+        size = len(para.encode())
+        why = ([f"缺 {'、'.join(lack)}"] if lack else []) + ([f"{size} 字节，超过 {records.CARD_MAX}"] if size > records.CARD_MAX else [])
+        if why:
+            add("card-format", f"{i} 的卡：{'；'.join(why)}")
+        text = " ".join(n["card"].values())
+        refs = set(records.ID_TOKEN.findall(text))
+        for br in re.findall(r"\[([^\[\]]+)\]", text):
+            refs |= {x.strip() for x in re.split(r"[,，、;；\s]+", br) if x.strip()}
+        bad = sorted(x for x in refs if x not in rec["glossary"] and not re.match(r"^\d", x))
+        if bad:
+            add("card-ref", f"{i} 的卡引用了目录里没有的编号：{short('、'.join(bad), 40)}")
+        src = t.nodes[i]["raw"].replace(para, "") + "\n".join(rec["rows"][k]["line"] for k in n["rows"])
+        lost = sorted(nums(n["card"].get("结果", "") + " " + n["card"].get("结论", "")) - nums(src))
+        if lost:
+            add("card-number", f"提示：{i} 的卡里 {short('、'.join(lost), 30)} 在节点原文与它的台账行里没找到（派生数可忽略）")
+    cs = rec["conditions"]
+    for c in cs["items"]:
+        if c["bad"]:
+            add("cond-format", f"条件 {c['id']}（charter.md:{c['lineno']}）：{c['bad']}；写法 - G1 陈述 | 线: … | 尺: … | 来源: …")
+    for cid in sorted({j["cid"] for j in cs["orphans"]}):
+        w = next(j["where"] for j in cs["orphans"] if j["cid"] == cid)
+        add("cond-format", f"判定点名了 {cid}（{w}），但 charter「完成标准」里没有这条")
+
+
+def lint_one(slug, d, ctx, rec=None):
     today, host = ctx["today"], ctx["host"]
     found = []
 
@@ -302,6 +354,14 @@ def lint_one(slug, d, ctx):
         know = len(tree.section(node, "当前认识").encode()) + len(tree.section(node, "教训").encode())
         if know > ROOT_KNOW_MAX:
             add("tree-root-size", f"根 {nid} 的「当前认识」加「教训」{kb(know)}，超过 {kb(ROOT_KNOW_MAX)}")
+
+    # 短卡与条件
+    if charter:
+        try:
+            import records
+            card_checks(rec or records.load(d, today), add)
+        except Exception as e:  # 解析出错只报一行，不拦别的检查
+            add("card-format", f"读不出短卡与条件（{type(e).__name__}: {short(str(e), 60)}）")
     return found
 
 
