@@ -64,7 +64,7 @@ SessionStart hook 跑 `pt auto`：当前目录只命中一个进行中的本机�
 
 档案写全了，会话上下文随时可以丢：压缩、换新会话都不丢东西，长会话不必硬撑着一个越滚越大的上下文。上下文压缩时两个 hook 接力：压缩前让摘要单列「未入档的进展」，压缩后按会话绑定重新注入简报（不在 Workdir 里开的会话也一样），并提示先把这些进展 checkpoint 再接着干。
 
-简报自己也有预算：整份不超过 8 KB；超出时 state 只留一句话、焦点、下一步、待拍板、资产这几节，其余块（charter、plan、考官卡、研究树、ADR 标题、state 其余节）各换成一行去处（`cat` 路径或 `pt tree <slug>`），用到再看。journal 只追加、不删，brief 只打印最后 3 条里靠后的部分，省略处给行号与原文路径。所以 journal 条目写增量，长证据放产物文件、条目里只记路径和关键数字。多早压缩由 Claude Code 的设置决定，见 [reference/hooks.md](reference/hooks.md)。
+简报自己也有预算：整份不超过 8 KB；超出时 state 按 一句话 → 焦点（焦点、焦点节点、研究树、现在在哪）→ 下一步 → 待拍板、等用户 → 别再试 → 资产 的顺序先占预算（放不全的留前几行），ADR 标题只留最近 5 条，其余块（charter、plan、考官卡、研究树、state 其余节）各换成一行去处（`cat` 路径或 `pt tree <slug>`），用到再看。所以焦点写进 state 的这几个小节名之一。journal 只追加、不删，brief 只打印最后 3 条里靠后的部分，省略处给行号与原文路径。所以 journal 条目写增量，长证据放产物文件、条目里只记路径和关键数字。多早压缩由 Claude Code 的设置决定，见 [reference/hooks.md](reference/hooks.md)。
 
 ## 模式
 

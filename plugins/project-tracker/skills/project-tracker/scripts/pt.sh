@@ -31,9 +31,9 @@ THIS_HOST="${PT_HOSTNAME:-$(hostname -s)}"
 SLUG_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
 # brief 里 journal 的字节预算（约 6000 个汉字）。journal 本身只追加、不删，预算只管简报打印多少
 JOURNAL_BUDGET="${PT_BRIEF_JOURNAL_BYTES:-18000}"
-# 整份简报的硬上限（字节）。超出时 state 只留这些节，其余块改成一行指针（去哪看全文）
+# 整份简报的硬上限（字节）。超出时 state 只留 BRIEF_STATE_RANKS 里的节（按序先占预算），其余块改成一行指针（去哪看全文）
 BRIEF_MAX_BYTES=8192
-BRIEF_STATE_KEYS='一句话|焦点|下一步|待拍板|资产'
+BRIEF_STATE_RANKS='一句话;焦点|研究树|现在在哪;下一步;待拍板|等用户;别再试;资产'
 STATE_MAX_BYTES=24000
 SESS_DIR="$ROOT/.sessions"
 HOOK_IN=""
@@ -305,7 +305,10 @@ cmd_brief() {
     FULL[journal]="$(section "journal.md 最后 3 条"; echo "(缺失)")"; PTR[journal]="${FULL[journal]}"
   fi
   FULL[adr]="$(section "decisions.md 标题"; grep -E '^## ADR-' "$DIR/decisions.md" 2>/dev/null || echo "(无 ADR)")"
-  PTR[adr]="$(section "decisions.md 标题"; brief_ptr "${FULL[adr]}" "grep '^## ADR-' $DIR/decisions.md")"
+  PTR[adr]="${FULL[adr]}"
+  t="$(grep -cE '^## ADR-' "$DIR/decisions.md" 2>/dev/null)"
+  [ "${t:-0}" -gt 5 ] && PTR[adr]="$(section "decisions.md 标题"; grep -E '^## ADR-' "$DIR/decisions.md" | tail -n 5
+    echo "（共 $t 条，只列最近 5 条；全部：grep '^## ADR-' $DIR/decisions.md）")"
   FULL[plan]="$(section plan.md; cat "$DIR/plan.md" 2>/dev/null || echo "(缺失)")"
   PTR[plan]="$(section plan.md; brief_ptr "${FULL[plan]}" "cat $DIR/plan.md")"
 
@@ -399,15 +402,34 @@ brief_journal() {
   [ "$(brief_total)" -le "$BRIEF_MAX_BYTES" ] || CUR[journal]="$old"
 }
 
-# state_short <file> <预算>：只留标题、Updated 与 BRIEF_STATE_KEYS 命中的节（文件顺序，放到预算为止），其余节列一行去处
+# state_short <file> <预算>：只留标题、Updated 与 BRIEF_STATE_RANKS 命中的节。按 RANKS 的先后占预算，
+# 一节放不全就留前几行再给去处；输出仍按文件顺序。其余节列一行去处
 state_short() {
-  LC_ALL=C awk -v budget="$2" -v keys="^## *($BRIEF_STATE_KEYS)" -v f="$1" '
+  LC_ALL=C awk -v budget="$2" -v ranks="$BRIEF_STATE_RANKS" -v f="$1" '
+    function rank(h,   r) { for (r = 1; r <= nr; r++) if (h ~ ("^## *(" rk[r] ")")) return r; return 0 }
+    BEGIN { nr = split(ranks, rk, ";") }
     /^## / { s++; head[s] = $0 }
-    { if (s) { body[s] = body[s] $0 "\n"; sz[s] += length($0) + 1 } else pre = pre $0 "\n" }
+    { if (s) { nl[s]++; ln[s, nl[s]] = $0; sz[s] += length($0) + 1 } else pre = pre $0 "\n" }
     END {
-      printf "%s", pre; used = length(pre)
+      used = length(pre)
+      for (r = 1; r <= nr; r++) for (i = 1; i <= s; i++) {
+        if (rank(head[i]) != r) continue
+        if (used + sz[i] <= budget) { keep[i] = nl[i]; used += sz[i]; continue }
+        p = sprintf("（本节余下 %d 行、约 %d 字节未展开；全文：cat %s）\n", nl[i], sz[i], f)
+        k = 0; b = length(p)
+        while (k < nl[i] && used + b + length(ln[i, k + 1]) + 1 <= budget) { k++; b += length(ln[i, k]) + 1 }
+        if (k) { keep[i] = k; used += b }
+      }
+      printf "%s", pre
       for (i = 1; i <= s; i++) {
-        if (head[i] ~ keys && used + sz[i] <= budget) { printf "%s", body[i]; used += sz[i]; continue }
+        if (keep[i]) {
+          for (j = 1; j <= keep[i]; j++) print ln[i, j]
+          if (keep[i] < nl[i]) {
+            c = 0; for (j = keep[i] + 1; j <= nl[i]; j++) c += length(ln[i, j]) + 1
+            printf "（本节余下 %d 行、约 %d 字节未展开；全文：cat %s）\n", nl[i] - keep[i], c, f
+          }
+          continue
+        }
         h = head[i]; sub(/^## */, "", h); skip = skip (skip == "" ? "" : "、") h; cut += sz[i]
       }
       if (cut) printf "（未展开 state.md 的节：%s，共 %d 字节；全文：cat %s）\n", skip, cut, f

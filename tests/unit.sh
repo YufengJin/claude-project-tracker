@@ -102,6 +102,16 @@ out=$(bash "$PT" brief fat)
 check "大 state：简报不超过 8192 字节"   '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ]'
 check "大 state：留一句话与下一步"        'grep -q "^## 一句话概括" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out" && ! grep -q "^- 细节 0：" <<<"$out"'
 check "大 state：省掉的节给出去处"        'grep -q "未展开 state.md 的节：.*进行中.*cat $T/root/fat/state.md" <<<"$out" && grep -q "简报上限 8192 字节" <<<"$out"'
+python3 - "$T/root/fat/state.md" "$T/root/fat/decisions.md" <<'PYS'
+import sys; p, d = sys.argv[1], sys.argv[2]; s = open(p, encoding="utf-8").read()
+s = s.replace("## 快速启动", "## 研究树\n焦点 H7：焦点写在这里\n\n## 资产\n" + "".join("- 资产 %d：" % i + "路径" * 60 + "\n" for i in range(40)) + "\n## 快速启动")
+open(p, "w", encoding="utf-8").write(s)
+open(d, "a", encoding="utf-8").write("".join("\n## ADR-%04d: 决策 %d " % (i, i) + "细节" * 50 + "\n" for i in range(1, 9)))
+PYS
+out=$(bash "$PT" brief fat)
+check "焦点类小节（研究树）先占预算"        '[ "$(printf "%s\n" "$out" | wc -c)" -le 8192 ] && grep -q "^焦点 H7：焦点写在这里" <<<"$out" && grep -q "^1. 下一步写在这里" <<<"$out"'
+check "放不全的小节留前几行再给去处"        'grep -q "^- 资产 0：" <<<"$out" && ! grep -q "^- 资产 39：" <<<"$out" && grep -q "本节余下 [0-9]* 行.*cat $T/root/fat/state.md" <<<"$out"'
+check "ADR 超限只留最近 5 条"               'grep -q "^## ADR-0008" <<<"$out" && grep -q "^## ADR-0004" <<<"$out" && ! grep -q "^## ADR-0003" <<<"$out" && grep -q "共 9 条，只列最近 5 条" <<<"$out"'
 check "没超上限的简报不提上限"            '! bash "$PT" brief alpha | grep -q "简报上限"'
 out=$(bash "$PT" brief alpha)
 check "没超预算的 journal 原样打印"     '! grep -q "省略 journal.md" <<<"$out" && grep -q "^Goal: x" <<<"$out"'
