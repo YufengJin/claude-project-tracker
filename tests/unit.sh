@@ -591,4 +591,75 @@ n1=$(git -C "$T/old/legacy" rev-list --count HEAD)
 bash "$PT" migrate >/dev/null
 check "migrate 幂等"                   '[ "$(git -C "$T/old/legacy" rev-list --count HEAD)" = "$n1" ] && [ "$(grep -c "旧的一句话" "$T/old/legacy/state.md")" = 1 ] && [ "$(grep -c "^Host:" "$T/old/legacy/charter.md")" = 1 ]'
 
+echo "# where 护栏：Workdir 是主目录、/ 或主目录的上级时不算命中"
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+GR="$T/guard"; GH="$T/gp/home"; mkdir -p "$GH/sub" "$GH/repo" "$T/gp/other"
+gw(){ (export PROJECT_TRACKER_ROOT="$GR" HOME="$GH"; cd "$1" && bash "$PT" "${2:-where}" </dev/null); }
+(export PROJECT_TRACKER_ROOT="$GR" HOME="$GH"
+ bash "$PT" new ghome "主目录" "$GH" >/dev/null; bash "$PT" new gtilde "波浪号" "~" >/dev/null
+ bash "$PT" new gslash "根目录" / >/dev/null; bash "$PT" new gparent "上级" "$T/gp" >/dev/null
+ bash "$PT" new grepo "正常仓库" "~/repo" >/dev/null; echo nothing > "$GR/ACTIVE")
+check "Workdir=\$HOME / ~ / / / 上级：在 ~ 下不命中"  '[ -z "$(gw "$GH")" ]'
+check "同上：在 ~ 的子目录也不命中"                    '[ -z "$(gw "$GH/sub")" ]'
+check "上级目录的 Workdir 在 ~ 之外也不算"            '[ -z "$(gw "$T/gp/other")" ]'
+check "~/repo 照常命中且只命中它"                     '[ "$(gw "$GH/repo")" = grepo ]'
+check "从 ~ 开会话 auto 静默"                         '[ -z "$(gw "$GH" auto)" ]'
+
+echo "# INDEX 最后更新不算 autosync 提交"
+AR="$T/asy"
+(export PROJECT_TRACKER_ROOT="$AR" GIT_AUTHOR_DATE="2026-01-02T10:00:00" GIT_COMMITTER_DATE="2026-01-02T10:00:00"
+ cd "$T/other" && bash "$PT" new syn "同步项目" "$T/other" >/dev/null && bash "$PT" index syn "旧进展" >/dev/null)
+echo "改动" >> "$AR/syn/state.md"
+git -C "$AR/syn" -c user.name=pt -c user.email=pt@x commit -qam "autosync @host-me (idle)"
+PROJECT_TRACKER_ROOT="$AR" bash "$PT" list --no-sync >/dev/null
+check "autosync 之后最后更新仍是上次 checkpoint 的日期" 'grep -q "^| syn | 同步项目 | 进行中 | 本机 | 2026-01-02 |" "$AR/INDEX.md"'
+PROJECT_TRACKER_ROOT="$AR" bash "$PT" index syn "新进展" >/dev/null
+check "再 checkpoint 就是今天"                          'grep -q "^| syn | 同步项目 | 进行中 | 本机 | $D |" "$AR/INDEX.md"'
+
+echo "# lint（只读体检）"
+LR="$T/lint"; mkdir -p "$T/lw/a" "$T/lw/b" "$LR/.fleet/hosts/far"; echo host-far > "$LR/.fleet/hosts/far/hostname"
+lt(){ PROJECT_TRACKER_ROOT="$LR" bash "$PT" lint "$@" 2>&1; }
+(export PROJECT_TRACKER_ROOT="$LR"
+ bash "$PT" new fresh "刚建" "$T/lw/a" >/dev/null
+ bash "$PT" new good "干净" "$T/lw/b" >/dev/null
+ bash "$PT" new wsh "别名主机" --host ws02 /x >/dev/null
+ bash "$PT" new far "远端" --host far /srv/nowhere >/dev/null
+ bash "$PT" new gone "目录没了" "$T/lw/missing" >/dev/null
+ bash "$PT" new big "膨胀" "$T/lw/b" >/dev/null && bash "$PT" research big >/dev/null)
+OLD=$(date -d "-10 days" +%F); OLDS=$(date -d "-10 days" +%m-%d); NEWS=$(date -d "-2 days" +%m-%d)
+G="$LR/good"
+printf '# 计划\nUpdated: %s\n\n## 步骤\n- [x] 1. 做完了\n' "$D" > "$G/plan.md"
+printf '# 当前状态\nUpdated: %s (session 2)\n\n## 一句话概括\n好。\n\n## 待拍板\n- 选 A 还是 B（%s）\n- 没写日期的一条\n\n## 下一步\n1. 跑测试\n' "$D" "$NEWS" > "$G/state.md"
+sed -i 's/<[^>]*>/已填/g' "$G/charter.md"
+printf '# 当前状态\nUpdated: %s (session 3)\n\n## 待拍板（%s）\n- 老问题（%s 提出）\n  续行 %s 补充\n- 新问题 %s\n\n## 已完成\n- x\n' "$OLD" "$OLDS" "$OLDS" "$OLDS" "$NEWS" > "$LR/fresh/state.md"
+printf '\n## %s · session 2 · @host-me\nDid: x\n' "$D" >> "$LR/fresh/journal.md"
+B="$LR/big"
+head -c 110000 /dev/zero | tr '\0' 'x' | fold -w 100 >> "$B/journal.md"
+seq 1 120 | sed 's/^/- 行 /' >> "$B/state.md"
+{ printf -- '---\ntitle: 根\nparent:\nstatus: active\n---\n## 当前认识\n'; head -c 4000 /dev/zero | tr '\0' 'a'; printf '\n## 教训\n'; head -c 3000 /dev/zero | tr '\0' 'b'; printf '\n'; } > "$B/tree/Q1.md"
+{ printf -- '---\ntitle: 大假设\nparent: Q1\nstatus: open\n---\n## 判别\n'; head -c 6000 /dev/zero | tr '\0' 'c'; printf '\n'; } > "$B/tree/H2.md"
+for p in "$LR"/*/; do git -C "$p" add -A >/dev/null; git -C "$p" -c user.name=t -c user.email=t@t commit -qm fixture >/dev/null; done
+sum0=$(find "$LR" -type f -not -path '*/.git/*' -exec md5sum {} + | sort | md5sum)
+out=$(lt --all); rc=$?
+check "lint 退出 0"                           '[ $rc -eq 0 ]'
+check "干净项目没有发现"                       '! grep -q "^good:" <<<"$out"'
+check "格式 <slug>: <检查名>: <一句话>"         '! grep -v "^$" <<<"$out" | grep -v "^共 " | grep -qvE "^[a-z0-9-]+: [a-z-]+: .+"'
+check "state 落后 journal"                     'grep -q "^fresh: state-stale: .*落后 10 天" <<<"$out"'
+check "待拍板标题日期过期"                     'grep -q "^fresh: pending-stale: 「待拍板（$OLDS）」标题日期" <<<"$out"'
+check "待拍板条目过期（续行并入，新条目不报）"  '[ "$(grep -c "^fresh: pending-stale: .*里「" <<<"$out")" = 1 ] && grep -q "老问题.*已过 10 天" <<<"$out"'
+check "刚建的项目报模板占位（charter/plan/state）" '[ "$(grep -c "^fresh: template: \(charter\|plan\|state\)\.md" <<<"$out")" = 2 ] && grep -q "^fresh: template: plan.md.*<当前步骤>" <<<"$out" && grep -q "^big: template: state.md.*<具体到能直接动手>" <<<"$out"'
+check "decisions 模板注释里的 <决策标题> 不报"  '! grep -q "decisions.md" <<<"$out"'
+check "journal 超 100 KB"                      'grep -q "^big: journal-size: " <<<"$out"'
+check "state 超上限"                           'grep -q "^big: state-size: .*超过 100 行或 24000 字节" <<<"$out"'
+check "Host 别名报出，FLEET 里的主机名不报"     'grep -q "^wsh: host: Host「ws02」不是规范主机名" <<<"$out" && ! grep -q "^far: host" <<<"$out"'
+check "远端项目不查 Workdir"                    '! grep -q "^far: workdir-missing" <<<"$out"'
+check "本机 Workdir 不存在"                     'grep -q "^gone: workdir-missing: .*$T/lw/missing 不存在" <<<"$out"'
+check "没有焦点也没有下一步"                    'grep -q "^fresh: no-focus: " <<<"$out" && ! grep -q "^big: no-focus" <<<"$out"'
+check "根节点认识加教训超 6 KB"                 'grep -q "^big: tree-root-size: 根 Q1 .*6.8 KB" <<<"$out"'
+check "单节点超 5 KB"                           'grep -q "^big: tree-node-size: 节点 H2 5.9 KB" <<<"$out" && [ "$(grep -c "^big: tree-node-size" <<<"$out")" = 2 ]'
+check "--all 末尾给计数"                        'tail -n1 <<<"$out" | grep -q "^共 6 个项目，.*state-stale 1，pending-stale 2，.*tree-node-size 2$"'
+check "单个 slug 只查它、不给计数"              'o=$(lt good fresh); grep -q "^fresh:" <<<"$o" && ! grep -q "^共 " <<<"$o"'
+check "未知 slug 也退出 0"                      'lt nope >/dev/null; [ $? -eq 0 ]'
+check "lint 不改任何文件、不提交"               '[ "$(find "$LR" -type f -not -path "*/.git/*" -exec md5sum {} + | sort | md5sum)" = "$sum0" ] && [ -z "$(for p in "$LR"/*/; do git -C "$p" status --porcelain; done)" ]'
+
 echo; echo "passed=$pass failed=$fail"; [ $fail -eq 0 ]

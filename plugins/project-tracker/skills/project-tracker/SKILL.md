@@ -46,12 +46,13 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | 命令 | 作用 |
 |---|---|
 | `pt list` | 打印 INDEX，每个 slug 附主机与 Workdir |
-| `pt where` | 当前目录命中的、Host 是本机的进行中项目 |
+| `pt where` | 当前目录命中的、Host 是本机的进行中项目（Workdir 写成 `~`、`/` 或 `~` 的上级目录的一律不算命中） |
 | `pt brief <slug>` | 按恢复顺序打印简报、设 ACTIVE，并把本会话绑到这个项目 |
 | `pt new <slug> "<名称>" [--host H] [workdir …]` | 从模板建档（git 仓）、ACTIVE 指向；workdir 默认当前目录 |
 | `pt index <slug> "<一句话>" [状态]` | 写 state 的一句话与状态、提交、重建 INDEX（一句话进 INDEX，不是提交说明） |
 | `pt research <slug>` | 研究项目：加考官卡 `verifier.md`、实验台账 `experiments.md` 与研究树根节点 `tree/Q1.md`（已有的不动） |
 | `pt tree <slug> [--all \| --ctx ID [--blind] \| --next Q\|H]` | 研究树：打印上下文、做一致性检查，并重写 `tree.html`（见下文"研究树"） |
+| `pt lint [<slug> … \| --all]` | 只读体检，不改文件、退出码恒为 0：state 落后 journal、待拍板/等用户超过 7 天、模板占位没填、journal 或 state 超限、Host 不是规范主机名、本机 Workdir 不存在、state 没有焦点也没有下一步、研究树根或节点过大。每条一行 `<slug>: <检查名>: <一句话>`，`--all` 末尾给计数；不给 slug 查 ACTIVE。checkpoint 前后想查漏时跑，按发现去改档案 |
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html` 与各 `tree.html` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |

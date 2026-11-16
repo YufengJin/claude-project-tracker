@@ -10,6 +10,7 @@
 #   pt.sh index <slug> "<一句话>" [状态]       写一句话（进 state 与 INDEX，不是提交说明）与状态、提交这次 checkpoint、重建 INDEX
 #   pt.sh research <slug>                      研究项目：加考官卡 verifier.md、实验台账 experiments.md、研究树 tree/Q1.md
 #   pt.sh tree <slug> [--all | --ctx ID [--blind] | --next Q|H]   研究树：打印上下文并重写 tree.html
+#   pt.sh lint [<slug> ... | --all]            档案体检：只读、只报告（<slug>: <检查名>: <一句话>），退出码恒为 0；默认 ACTIVE
 #   pt.sh monitor [--out PATH]                 全局研究监控：所有有 tree/ 的项目汇成 <档案根>/research.html（各 tree.html 的入口 + 最近动态）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html 与各 tree.html 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
@@ -35,6 +36,7 @@ JOURNAL_BUDGET="${PT_BRIEF_JOURNAL_BYTES:-18000}"
 BRIEF_MAX_BYTES=8192
 BRIEF_STATE_RANKS='一句话;焦点|研究树|现在在哪;下一步;待拍板|等用户;别再试;资产'
 STATE_MAX_BYTES=24000
+STATE_MAX_LINES=100
 SESS_DIR="$ROOT/.sessions"
 HOOK_IN=""
 
@@ -147,12 +149,14 @@ host_label() {
   alias_of_host "$h" || echo "$h"
 }
 
-# 某 slug 的 Workdir 是否包含当前目录
+# 某 slug 的 Workdir 是否包含当前目录。Workdir 是 $HOME、/ 或 $HOME 的上级目录的不算：
+# 那样从 ~ 开的每个会话都会命中它、被注入它的简报
 hits_cwd() {
-  local p
+  local p h; h="$(cd "$HOME" 2>/dev/null && pwd -P)"
   for p in $(workdirs "$1"); do
     p="${p/#\~/$HOME}"
     p="$(cd "$p" 2>/dev/null && pwd -P)" || continue
+    case "$h/" in "${p%/}"/*) continue ;; esac
     case "$CWD/" in "$p"/*) return 0 ;; esac
   done
   return 1
@@ -182,10 +186,10 @@ set_summary() {
   mv "$tmp" "$f"
 }
 
-# 最后更新：最后一次提交的日期（迁移提交不算）；只有迁移提交时取 journal 最后一条的日期
+# 最后更新：最后一次提交的日期（迁移提交、autosync 兜底提交不算）；只有这两种提交时取 journal 最后一条的日期
 last_update() {
   local d="$ROOT/$1" u
-  u="$(git -C "$d" log -1 --format=%as --invert-grep --grep='^migrate to 0\.4' 2>/dev/null)"
+  u="$(git -C "$d" log -1 --format=%as --invert-grep --grep='^migrate to 0\.4' --grep='^autosync @' 2>/dev/null)"
   [ -n "$u" ] || u="$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' "$d/journal.md" 2>/dev/null | tail -n1 | cut -c4-)"
   [ -n "$u" ] || u="$(date -r "$d/state.md" +%F 2>/dev/null)"
   echo "$u"
@@ -368,8 +372,8 @@ brief_head() {
 brief_foot() {
   if [ -f "$DIR/state.md" ]; then
     local LINES BYTES; LINES=$(wc -l < "$DIR/state.md"); BYTES=$(wc -c < "$DIR/state.md")
-    if [ "$LINES" -gt 100 ] || [ "$BYTES" -gt "$STATE_MAX_BYTES" ]; then
-      printf '\n[warn] state.md %s 行 / %s 字节，超过 100 行或 %s 字节的上限，checkpoint 时压缩进 archive/\n' "$LINES" "$BYTES" "$STATE_MAX_BYTES"
+    if [ "$LINES" -gt "$STATE_MAX_LINES" ] || [ "$BYTES" -gt "$STATE_MAX_BYTES" ]; then
+      printf '\n[warn] state.md %s 行 / %s 字节，超过 %s 行或 %s 字节的上限，checkpoint 时压缩进 archive/\n' "$LINES" "$BYTES" "$STATE_MAX_LINES" "$STATE_MAX_BYTES"
     fi
   fi
   if [ -f "$DIR/journal.md" ]; then
@@ -453,6 +457,16 @@ cmd_tree() {
   shift
   command -v python3 >/dev/null || die "pt tree 要 python3"
   python3 "$HERE/tree.py" "$ROOT/$SLUG" "$@"
+}
+
+# lint：只读体检，不改文件、不拦人，退出码恒为 0。不给 slug 就查 ACTIVE
+cmd_lint() {
+  command -v python3 >/dev/null || { echo "pt lint 要 python3" >&2; return 0; }
+  [ $# -gt 0 ] || set -- "$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$1" ] || { echo "用法: pt.sh lint [<slug> ... | --all]" >&2; return 0; }
+  python3 "$HERE/lint.py" --root "$ROOT" --host "$THIS_HOST" --templates "$TPL" \
+    --state-max-bytes "$STATE_MAX_BYTES" --state-max-lines "$STATE_MAX_LINES" "$@"
+  return 0
 }
 
 cmd_auto() {
@@ -668,6 +682,7 @@ case "${1:-}" in
   index)    shift; cmd_index "$@" ;;
   research) shift; cmd_research "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
+  lint)     shift; cmd_lint "$@" ;;
   migrate)  cmd_migrate ;;
   rm)       shift; cmd_rm "$@" ;;
   serve)    shift; command -v python3 >/dev/null || die "pt serve 要 python3"; exec python3 "$HERE/serve.py" --root "$ROOT" "$@" ;;
@@ -675,5 +690,5 @@ case "${1:-}" in
   sync|dispatch|runs)
             is_hub || die "这台机器不是中心机（没有 $ROOT/FLEET）"
             c="$1"; shift; "fleet_$c" "$@" ;;
-  *)        sed -n '2,21p' "$0"; exit 1 ;;
+  *)        sed -n '2,22p' "$0"; exit 1 ;;
 esac
