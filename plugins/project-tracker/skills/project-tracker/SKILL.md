@@ -61,9 +61,10 @@ description: 为跨多次会话的长期任务在全局目录 ~/.claude/project/
 | `pt journal-archive <slug>` | journal.md 超过 100 KB 时，把上月之前的整月条目原样搬到 `archive/journal-YYYY-MM.md`（认不出日期的旧条目进 `archive/journal-early.md`），核对条数与字节数守恒后提交，顶部留一行说明 |
 | `pt monitor [--out PATH]` | 全局研究监控：所有有 `tree/` 的项目汇成档案根的 `research.html`（见下文"研究树"） |
 | `pt site [--out DIR]` | 给人看的只读站点 `<档案根>/site/`：全部项目 → 项目页（现在、等你拍板、条件表、最近结论、按问题分组的卡；工程项目放最近结果与决定）→ 节点页（卡、证据、判据、原文、释义）。只经 records 取数，不调模型；`pt monitor` 顺带生成 |
-| `pt serve [run\|install\|status\|uninstall]` | 只读发布 `research.html`、各 `tree.html` 与 `site/` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README） |
+| `pt serve [run\|install\|status\|uninstall]` | 发布 `research.html`、各 `tree.html` 与 `site/` 到 tailnet：只监听 127.0.0.1，经 `tailscale serve` 转 HTTPS，按 `Tailscale-User-Login` 头查白名单（`<档案根>/.serve.conf`，见 README）；唯一的写入口是首页的多选删除（`POST /api/rm`，同样要白名单身份） |
 | `pt migrate` | 把 0.3 及以前的档案升级（先备份，幂等） |
 | `pt rm <slug\|编号> …` | 中心机删项目（编号见 `pt list` / `pt id`，动手前打印「编号 → slug」）：先打包到 `<档案根>/.backup/deleted-<slug>-<时间>.tgz`，slug 记进墓碑 `.deleted`，同步不再从节点导入（节点副本不动）；ACTIVE 或有会话绑定的拒删。用户明说要删才用，`pt new` 同名会清掉墓碑 |
+| `pt rm --env [--dry-run] <slug\|编号> …` | 连同本机的环境与实验结果：charter 的 Workdir 目录挪进同层 `.pt-trash/<slug>-<时间>/`（可原样挪回，腾盘要手工删）、停记了这个 slug 的 fleet 任务、删挂着这些目录的容器；别的还在的项目也在用的目录、挂着别的 worktree 的主仓、别的机器上的环境不动，各说一句。`--dry-run` 只说会动什么。站点首页「管理 → 删除所选」走的是同一条命令（先预演、确认后才删）；已结束会话留下的绑定自动清掉，活着的会话绑定仍然挡住 |
 | `pt restore <slug>` | 中心机：从 `.backup/` 里这个 slug 最新的删除备份解回、去掉墓碑、重建总览；目录已存在就拒绝 |
 | `pt id [<slug\|编号>]` | 项目编号（sha1(slug) 前缀，取让全部项目不重名的最短长度、至少 4 位；`pt list` 的「编号」列、站点项目名旁）：打印「编号 slug」，不带参数列全部 |
 | `pt sync` / `pt dispatch` / `pt runs` | 中心机的多机功能，见下文"多机" |

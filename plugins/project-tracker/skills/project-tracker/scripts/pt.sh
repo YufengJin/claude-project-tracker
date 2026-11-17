@@ -20,7 +20,7 @@
 #   pt.sh site [--out DIR]                     给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/（pt monitor 顺带生成）
 #   pt.sh serve [run|install|status|uninstall] 只读发布 research.html、各 tree.html 与 site/ 到 tailnet（127.0.0.1 + tailscale serve，身份白名单见 <档案根>/.serve.conf）
 #   pt.sh migrate                              把 0.3 及以前的档案升级到 0.4（先备份；幂等）
-#   pt.sh rm <slug|编号> ...                   中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）
+#   pt.sh rm [--env] [--dry-run] <slug|编号> ...   中心机：删项目（先打包到 .backup/，记墓碑 .deleted，同步不再从节点导入）；--env 连同本机环境与结果（挪进 .pt-trash/）
 #   pt.sh restore <slug>                       中心机：从 .backup/ 最新的 deleted-<slug>-*.tgz 恢复，去掉墓碑
 #   pt.sh id [<slug|编号>]                     项目编号（sha1(slug) 前缀，pt list 的「编号」列）：打印「编号 slug」，不带参数列出全部
 #   pt.sh sync [-q] [别名 ...]                 中心机：与节点同步（只快进；分叉只报告不合并）
@@ -708,21 +708,49 @@ cmd_index() {
   echo "[project-tracker] 已提交: $SLUG | $(field "$SLUG" Status) | $TODAY | $SUMMARY"
 }
 
+# 会话还活着吗：Claude Code 在 ~/.claude/sessions/<pid>.json 里登记在跑的会话；没有这个目录就当都活着（照旧不删）
+sess_live() {
+  local d="${PT_CLAUDE_SESSIONS:-$HOME/.claude/sessions}"
+  [ -d "$d" ] || return 0
+  grep -qsF "\"$1\"" "$d"/*.json
+}
+
 # rm（只在中心机）：整个目录打包到 .backup/，包里的条目数对得上才删；slug 记进墓碑 .deleted（同步时不再从节点导入）。
-# 节点上的副本不动。ACTIVE、有会话绑定、有派活在跑的不删
+# 节点上的副本不动。ACTIVE、有会话绑定、有派活在跑的不删。
+# --env：连同本机的环境与实验结果（charter 的 Workdir 目录挪进同层 .pt-trash/、停它的 fleet 任务、删挂着这些目录的容器，见 rmenv.py）。
+# --dry-run：只说会动什么
 cmd_rm() {
-  [ $# -gt 0 ] || die "用法: pt.sh rm <slug|编号> ..."
+  local env=0 dry=0 args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --env) env=1 ;; --dry-run) dry=1 ;; *) args+=("$1") ;; esac; shift
+  done
+  [ ${#args[@]} -gt 0 ] || die "用法: pt.sh rm [--env] [--dry-run] <slug|编号> ..."
   is_hub || die "pt rm 只在中心机（有 $ROOT/FLEET、档案根是默认位置）上用"
-  local a s bk b active rc=0
+  local a s bk b active rc=0 ok=() gone
   active="$(head -n1 "$ROOT/ACTIVE" 2>/dev/null | tr -d '[:space:]')"
   mkdir -p "$ROOT/.backup"
-  for a in "$@"; do
+  for a in "${args[@]}"; do
     if ! s="$(resolve_proj "$a")"; then echo "  $a: $s，跳过"; rc=1; continue; fi
     [ "$s" = "$a" ] || echo "  $a → $s"
     if [ "$s" = "$active" ]; then echo "  $s: 是 ACTIVE（最近一次 brief 的项目），不删"; rc=1; continue; fi
-    b="$(grep -lxF "$s" "$SESS_DIR"/* 2>/dev/null | head -n1)"
+    for b in $(grep -lxF "$s" "$SESS_DIR"/* 2>/dev/null); do  # 已结束会话留下的绑定先清掉
+      sess_live "$(basename "$b")" || { [ $dry = 1 ] || rm -f "$b"; }
+    done
+    b="$(for b in $(grep -lxF "$s" "$SESS_DIR"/* 2>/dev/null); do sess_live "$(basename "$b")" && echo "$b"; done | head -n1)"
     if [ -n "$b" ]; then echo "  $s: 会话 $(basename "$b") 绑定着它（$(date -r "$b" +%F)），不删；那个会话已结束就先删 $b"; rc=1; continue; fi
     if [ -f "$ROOT/.fleet/active/$s" ]; then echo "  $s: 派活 $(cat "$ROOT/.fleet/active/$s") 正在改它，不删"; rc=1; continue; fi
+    ok+=("$s")
+  done
+  gone="$(IFS=,; echo "${ok[*]}")"
+  for s in "${ok[@]}"; do
+    if [ $dry = 1 ]; then
+      echo "  $s: 会删除档案（备份进 .backup/，pt restore 可恢复）"
+      [ $env = 1 ] && PT_HOSTNAME="$THIS_HOST" python3 "$HERE/rmenv.py" "$ROOT" plan "$s" --gone "$gone"
+      continue
+    fi
+    if [ $env = 1 ]; then
+      PT_HOSTNAME="$THIS_HOST" python3 "$HERE/rmenv.py" "$ROOT" apply "$s" --gone "$gone" || { echo "  $s: 环境没清干净（见上），档案未删"; rc=1; continue; }
+    fi
     bk="$ROOT/.backup/deleted-$s-$(date +%Y%m%d-%H%M%S).tgz"
     if tar czf "$bk" -C "$ROOT" "$s" && [ "$(tar tzf "$bk" | wc -l)" = "$(find "$ROOT/$s" | wc -l)" ]; then
       grep -qxF "$s" "$ROOT/.deleted" 2>/dev/null || printf '%s\n' "$s" >> "$ROOT/.deleted"
@@ -732,6 +760,7 @@ cmd_rm() {
       rm -f "$bk"; echo "  $s: 备份没能核对，未删"; rc=1
     fi
   done
+  [ $dry = 1 ] && return $rc
   render_index
   render_monitor
   return $rc

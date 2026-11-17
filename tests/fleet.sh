@@ -7,6 +7,7 @@ PT="$S/../plugins/project-tracker/skills/project-tracker/scripts/pt.sh"
 T=$(mktemp -d)
 export FAKE_HOSTS="$T/hosts" PT_SCRIPT="$PT"
 export PROJECT_TRACKER_ROOT="$T/hub/.claude/project" PT_HOSTNAME=host-hub
+export PT_CLAUDE_SESSIONS="$T/no-claude-sessions" PT_FLEET_JOBS="$T/no-fleet-jobs"   # 测试不看真机的会话登记与 fleet 任务
 export PT_SSH="$S/fakessh" PT_GIT_SSH="$S/fakessh" PT_CLAUDE="$S/fakeclaude"
 export PT_QUIET=0 PT_IDLE=100000 PT_WAIT_INTERVAL=1 PT_SYNC_ANY_ROOT=1
 export PT_TMUX="tmux -L pttest$$-\$PT_HOSTNAME"
@@ -222,6 +223,24 @@ check "节点副本不动"                       '[ -f "$NB/gone/charter.md" ]'
 hpt new gone "中心重新立的同名项目" >/dev/null
 check "new 同名清掉墓碑"                   '! grep -qx gone "$H/.deleted" && [ -f "$H/gone/charter.md" ]'
 echo pa > "$H/ACTIVE"; hpt rm gone >/dev/null; rm -rf "$NB/gone"
+
+echo "# rm --env：连同本机环境与结果"
+mkdir -p "$T/wd/own" "$T/wd/shared" "$T/wd/scratch"; echo r > "$T/wd/own/result.txt"
+hpt new envp "要连环境删的项目" --host host-hub "$T/wd/own" "$T/wd/shared" "$T/wd/scratch" >/dev/null
+hpt new envkeep "还在用 shared 的项目" --host host-hub "$T/wd/shared" >/dev/null
+hpt new envfar "环境在别的机器上" --host host-zz "$T/wd/scratch" >/dev/null
+echo pa > "$H/ACTIVE"
+mkdir -p "$T/live"; echo '{"sessionId":"sess-live"}' > "$T/live/1.json"; echo envp > "$H/.sessions/sess-dead"; echo envp > "$H/.sessions/sess-live"
+out=$(PT_CLAUDE_SESSIONS="$T/live" hpt rm --env envp 2>&1); rc=$?
+check "活着的会话绑定仍然挡住，已结束的绑定自动清掉" '[ $rc -ne 0 ] && grep -q "会话 sess-live 绑定着它" <<<"$out" && [ ! -e "$H/.sessions/sess-dead" ] && [ -d "$T/wd/own" ]'
+rm -f "$H/.sessions/sess-live"
+out=$(hpt rm --env --dry-run envp envfar 2>&1)
+check "--dry-run 只说不做"               'grep -q "envp: 会删除档案" <<<"$out" && grep -q "会挪走 $T/wd/own" <<<"$out" && grep -q "不动 $T/wd/shared：项目 envkeep 也在用" <<<"$out" && grep -q "在 host-zz 上，本机不动" <<<"$out" && [ -d "$H/envp" ] && [ -d "$T/wd/own" ]'
+out=$(hpt rm --env envp envfar 2>&1)
+check "--env 把独占的目录挪进 .pt-trash，共用的不动" '[ ! -d "$H/envp" ] && [ ! -e "$T/wd/own" ] && [ -f "$(ls -d "$T"/wd/.pt-trash/envp-*/own)/result.txt" ] && [ -d "$T/wd/shared" ] && [ -d "$H/envkeep" ]'
+check "同批一起删的不算还在用；别的机器上的环境不动" '[ ! -d "$H/envfar" ] && [ -d "$(ls -d "$T"/wd/.pt-trash/envp-*/scratch)" ]'
+hpt rm envkeep >/dev/null
+check "不带 --env 只删档案"               '[ ! -d "$H/envkeep" ] && [ -d "$T/wd/shared" ]'
 
 echo "# journal-archive 与多机同步"
 npt a new pj "A 上的长 journal" >/dev/null

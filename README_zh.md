@@ -96,7 +96,8 @@ bash $PT research <slug>                       # 研究项目：加 verifier.md�
 bash $PT tree <slug> [--all | --ctx ID [--blind] | --next Q|H]  # 研究树：打印上下文，重写 tree.html
 bash $PT monitor [--out PATH]                  # 全局研究监控：所有研究项目汇成档案根的 research.html
 bash $PT site [--out DIR]                      # 给人看的只读站点：全部项目 → 项目 → 节点，写 <档案根>/site/
-bash $PT serve [install|status|uninstall]      # 只读发布 site/、research.html / tree.html 到 tailnet
+bash $PT serve [install|status|uninstall]      # 发布 site/、research.html / tree.html 到 tailnet；首页「管理」可多选删除项目
+bash $PT rm [--env] [--dry-run] <slug|编号> …  # 中心机删项目（备份进 .backup/）；--env 连同本机环境与结果（挪进 .pt-trash/）
 bash $PT migrate                               # 升级 0.3 档案（先备份，幂等）
 bash $PT id [<slug|编号>]                      # 项目编号：sha1(slug) 前缀，取不重名的最短长度（至少 4 位）；打印「编号 slug」
 bash $PT rm <slug|编号> ...                    # 中心机：删项目（先备份到 .backup/，记墓碑 .deleted）

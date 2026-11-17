@@ -351,6 +351,11 @@ details{margin:8px 0}summary{cursor:pointer;color:var(--acc)}
 .bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bar0);margin:6px 0 2px;max-width:420px}
 .bar i{display:block;height:100%}.bar .ok{background:var(--ok)}.bar .bad{background:var(--bad)}.bar .mid{background:var(--mid)}
 .bar .grey{background:var(--grey);opacity:.55}.bar .dim{background:var(--grey);opacity:.25}
+.pick,.admon{display:none}.admin .pick{display:inline-block;margin-right:8px}.admin .admon{display:inline-flex;gap:10px;align-items:center;margin-left:10px}
+.adm{margin:6px 0}.adm button,.dbtn button{font:inherit;padding:3px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:inherit;cursor:pointer}
+.adm button:disabled{opacity:.5;cursor:default}#del:not(:disabled),#dyes{border-color:#c0392b;color:#c0392b}
+dialog{max-width:min(92vw,820px);border:1px solid var(--line);border-radius:10px;background:var(--card);color:inherit}
+dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:13px}.dbtn{display:flex;gap:10px;justify-content:flex-end}
 .proj .pn{font-weight:600}.proj .now{margin:2px 0}
 table.cond td.st,table.cond th,table.cond td[data-l="日期"]{white-space:nowrap}.evn{display:inline-block;max-width:14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 @media (max-width:640px){table.cond,table.cond tbody,table.cond tr,table.cond td{display:block;width:100%}
@@ -373,6 +378,25 @@ f.parentNode.querySelectorAll('button').forEach(function(x){x.classList.toggle('
 box.querySelectorAll('[data-s]:not(.grp)').forEach(function(x){x.hidden=v!=='all'&&x.dataset.s!==v});
 box.querySelectorAll('.grp').forEach(function(g){g.hidden=v!=='all'&&g.dataset.s!==v&&!g.querySelector('[data-s]:not(.grp):not([hidden])')})});
 })();</script>"""
+
+
+# 首页的多选删除：先向 /api/rm 要一份预演给人看，确认后再真删（serve.py 转给 pt.sh rm）。直接打开文件看时接口不存在，会报错
+ADMIN = """<dialog id="dlg"><b id="dt"></b><pre id="dp"></pre><div class="dbtn"><button type="button" id="dno">取消</button>
+<button type="button" id="dyes">确认删除</button></div></dialog>
+<script>(function(){var $=function(i){return document.getElementById(i)},d=$('dlg'),b=document.body;
+function sel(){return [].map.call(document.querySelectorAll('.pick:checked'),function(x){return x.value})}
+function call(dry){return fetch('/api/rm',{method:'POST',headers:{'Content-Type':'application/json','X-PT':'1'},
+body:JSON.stringify({slugs:sel(),env:$('wenv').checked,dry:dry})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})}
+function show(t,o,yes){$('dt').textContent=t;$('dp').textContent=o;$('dyes').hidden=!yes;$('dno').textContent=yes?'取消':'关闭';if(!d.open)d.showModal()}
+$('adm').onclick=function(){b.classList.toggle('admin')};
+document.addEventListener('change',function(e){if(e.target.classList.contains('pick'))$('del').disabled=!sel().length});
+$('del').onclick=function(){show('预演中…','',false);call(true).then(function(j){
+show('将删除 '+sel().length+' 个项目'+($('wenv').checked?'（连同环境和实验结果）':'（只删档案）'),j.out,/会删除档案/.test(j.out))})
+.catch(function(e){show('没能预演',String(e)+'\\n（这个按钮只在 pt serve 发布的页面上可用）',false)})};
+$('dyes').onclick=function(){$('dyes').disabled=true;show('删除中…',$('dp').textContent,false);call(false).then(function(j){
+$('dyes').disabled=false;show(j.ok?'已删除':'部分没删成',j.out,false);d.addEventListener('close',function(){location.reload()},{once:true})})
+.catch(function(e){$('dyes').disabled=false;show('出错',String(e),false)})};
+$('dno').onclick=function(){d.close()};})();</script>"""
 
 
 def page(title, body, note):
@@ -888,7 +912,9 @@ def overview(recs, fails, today, research_href, note, ids=None):
     allp = len(recs) + len(fails)
     pend = [(r, len(r["pending"])) for r in recs.values() if r["pending"]]
     pend.sort(key=lambda x: -x[1])
-    s = ["<h1>全部项目</h1>",
+    s = ['<h1>全部项目</h1><div class="adm"><button type="button" id="adm">管理</button>'
+         '<span class="admon"><label><input type="checkbox" id="wenv"> 连同环境和实验结果</label>'
+         '<button type="button" id="del" disabled>删除所选</button></span></div>',
          f'<div class="meta"><span>{allp} 个项目</span>' +
          (f'<a href="{research_href}">研究总览（旧版）</a>' if research_href else "") + "</div>"]
     total = sum(k for _r, k in pend)
@@ -941,7 +967,7 @@ def overview(recs, fails, today, research_href, note, ids=None):
                 prog += '<div class="muted">条件未登记</div>'
             summ = r["state"]["summary"]
             pid = nid(ids[r["slug"]]) if r["slug"] in ids else ""  # 项目编号（pt rm / pt id 认它）
-            rows.append(f'<div class="proj"><a class="pn" href="p/{r["slug"]}.html">{esc(r["name"] or r["slug"])}</a>{pid}'
+            rows.append(f'<div class="proj"><input type="checkbox" class="pick" value="{r["slug"]}" aria-label="选中"><a class="pn" href="p/{r["slug"]}.html">{esc(r["name"] or r["slug"])}</a>{pid}'
                         f'<div class="meta">{"".join(f"<span>{esc(x)}</span>" for x in m)}{tags}</div>'
                         f'<div class="now">{inline(cut(summ, 110), Ref(r, "index", "human")) if summ else NONE}</div>{prog}</div>')
         body = "".join(rows)
@@ -950,7 +976,7 @@ def overview(recs, fails, today, research_href, note, ids=None):
         s.append(f"<h2>{title}（{len(rs)}）</h2>{body}")
     for slug, why in sorted(fails.items()):
         s.append(f'<div class="proj"><b>{esc(slug)}</b><div class="muted">读取失败：{esc(why)}</div></div>')
-    return page("全部项目", "\n".join(s), note)
+    return page("全部项目", "\n".join(s) + ADMIN, note)
 
 
 # ---------- 写出 ----------

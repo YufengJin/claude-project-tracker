@@ -563,6 +563,10 @@ rm "$SV/site/.pt-site"
 check "站点目录没有 .pt-site 标记：404，/ 回到 research.html" '[ "$(code "${ME[@]}" "$U/site/")" = 404 ] && [ "$(code "${ME[@]}" "$U/site/p/ra.html")" = 404 ] && curl -s "${ME[@]}" "$U/" | grep -q RESEARCH'
 touch "$SV/site/.pt-site"
 check "POST 405"                           '[ "$(code "${ME[@]}" -X POST "$U/")" = 405 ]'
+JS=(-H 'Content-Type: application/json' -H 'X-PT: 1')
+check "POST /api/rm：没身份、没 X-PT、跨站 Origin 都 403" '[ "$(code "${JS[@]}" -d "{\"slugs\":[\"ra\"]}" "$U/api/rm")" = 403 ] && [ "$(code "${ME[@]}" -H "Content-Type: application/json" -d "{\"slugs\":[\"ra\"]}" "$U/api/rm")" = 403 ] && [ "$(code "${ME[@]}" "${JS[@]}" -H "Origin: https://evil.com" -d "{\"slugs\":[\"ra\"]}" "$U/api/rm")" = 403 ]'
+check "POST /api/rm：slug 不合规 400"       '[ "$(code "${ME[@]}" "${JS[@]}" -d "{\"slugs\":[\"../x\"]}" "$U/api/rm")" = 400 ] && [ "$(code "${ME[@]}" "${JS[@]}" -d "{}" "$U/api/rm")" = 400 ]'
+check "POST /api/rm：转给 pt.sh rm，默认只预演，项目还在" 'curl -s "${ME[@]}" "${JS[@]}" -d "{\"slugs\":[\"ra\"]}" "$U/api/rm" | grep -q "\"out\"" && [ -d "$SV/ra" ] && grep -q "rm --dry-run ra" "$T/sv.log"'
 check "HEAD 200 无正文"                    '[ "$(curl -s -I "${ME[@]}" "$U/research.html" -o /dev/null -w "%{http_code} %{size_download}")" = "200 0" ]'
 hd=$(curl -s -D - -o /dev/null "${ME[@]}" "$U/research.html"); hd403=$(curl -s -D - -o /dev/null "$U/")
 check "响应头齐全（200 与 403 都有）"       'for h in "Cache-Control: no-cache" "X-Content-Type-Options: nosniff" "Content-Security-Policy: default-src '"'"'none'"'"'" "Referrer-Policy: no-referrer"; do grep -qi "^$h" <<<"$hd" && grep -qi "^$h" <<<"$hd403" || exit 1; done'

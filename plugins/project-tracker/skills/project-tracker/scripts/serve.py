@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""serve.py — 只读地把研究监控页 research.html 与各项目 tree.html 发到 tailnet 内（经 tailscale serve）。
+"""serve.py — 把研究监控页 research.html 与各项目 tree.html 发到 tailnet 内（经 tailscale serve）。
 
   serve.py --root R [run] [--allow-local] [--port N]   前台起服务：只监听 127.0.0.1
   serve.py --root R install                            写并启用 systemd 用户单元 pt-serve.service，再配 tailscale serve
@@ -14,7 +14,10 @@
 只服务 /（档案根下有合格的 site/ 时 302 到 /site/，没有时同 /research.html）、/research.html、/<slug>/tree.html（slug 是档案根下真实目录、含 tree/、不是符号链接、文件不逃出档案根），
 以及给人看的站点 <档案根>/site/（pt site / pt monitor 生成，目录里要有 .pt-site 标记）：/site/、/site/index.html、
 /site/p/<slug>.html（研究与工程项目都有）、/site/p/<slug>/<Q|H 编号或 J 条目编号>.html（slug 同样要是档案根下真实的项目目录，含 charter.md）；
-其余 404；只允许 GET / HEAD。请求必须带白名单内的 Tailscale-User-Login 头，否则 403；
+其余 404；读只允许 GET / HEAD。唯一的写入口是 POST /api/rm（站点首页的「删除所选」）：正文 JSON
+{"slugs": [...], "env": 是否连同环境与结果, "dry": 是否只预演}，原样转给 pt.sh rm [--env] [--dry-run]，回 {"ok", "out"}；
+要求 Content-Type: application/json、头 X-PT: 1、Origin（有的话）与 Host 同名，挡跨站请求。
+请求必须带白名单内的 Tailscale-User-Login 头，否则 403；
 --allow-local 只给本机调试：没有身份头的请求也放行。只用标准库。
 """
 import argparse
@@ -32,7 +35,7 @@ PATH_RE = re.compile(r"^/(?:(research\.html)|([a-z0-9]+(?:-[a-z0-9]+)*)/tree\.ht
 SITE_RE = re.compile(r"^/site/(?:(index\.html)?|p/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.html|/([QH][1-9][0-9]{0,5}|J[0-9]{6}-[1-9][0-9]{0,3})\.html))$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost"}
 UNIT = "pt-serve.service"
-CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
+CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 SEC_HEADERS = (("Cache-Control", "no-cache"), ("X-Content-Type-Options", "nosniff"),
                ("Content-Security-Policy", CSP), ("Referrer-Policy", "no-referrer"),
@@ -170,7 +173,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _not_allowed
+    def _json(self, code, obj):
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        if self.path != "/api/rm":
+            return self._not_allowed()
+        if not self._identity_ok():
+            return self.send_error(403)
+        origin = self.headers.get("Origin")
+        if (self.headers.get("X-PT") != "1" or (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json"
+                or (origin is not None and origin.split("://", 1)[-1] != self.headers.get("Host"))):
+            return self.send_error(403)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            req = json.loads(self.rfile.read(n)) if 0 < n <= 65536 else None
+            slugs = req["slugs"]
+            if not (isinstance(slugs, list) and 0 < len(slugs) <= 200 and all(isinstance(x, str) and SLUG_RE.match(x) for x in slugs)):
+                raise ValueError
+        except (ValueError, KeyError, TypeError):
+            return self.send_error(400)
+        cmd = ["bash", os.path.join(os.path.dirname(os.path.realpath(__file__)), "pt.sh"), "rm"]
+        cmd += ["--env"] if req.get("env") is True else []
+        cmd += ["--dry-run"] if req.get("dry") is not False else []  # 没明说 dry=false 就只预演
+        env = dict(os.environ, PROJECT_TRACKER_ROOT=self.root,
+                   PATH=os.path.expanduser("~/.local/bin") + os.pathsep + os.environ.get("PATH", ""))
+        try:
+            p = subprocess.run(cmd + slugs, capture_output=True, text=True, timeout=900, env=env, stdin=subprocess.DEVNULL)
+            ok, out = p.returncode == 0, p.stdout + p.stderr
+        except (OSError, subprocess.TimeoutExpired) as e:
+            ok, out = False, str(e)
+        sys.stderr.write(f"{self.headers.get('Tailscale-User-Login', '-')} rm {' '.join(cmd[3:] + slugs)} → {'ok' if ok else 'fail'}\n")
+        self._json(200, {"ok": ok, "out": out})
+
+    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _not_allowed
 
 
 def cmd_run(root, conf, args):
